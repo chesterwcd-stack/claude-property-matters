@@ -1,0 +1,153 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "created": "2026-04-11",
+    "description": "Data contract for SG Property Consultation System. All components — Sheet A intake, Sheet A master tracker, Sheet B project database, dashboard, and JSON export — use these schemas."
+  },
+
+  "ClientProfile": {
+    "_description": "Complete profile for one client. Sheet A (intake) collects this. Dashboard loads and displays this. JSON export saves this.",
+    "fields": {
+
+      "meta": {
+        "clientId":        { "type": "string",  "example": "ALICE-001",        "source": "advisor",   "notes": "Unique ID assigned by Chester" },
+        "clientName":      { "type": "string",  "example": "Alice Tan",         "source": "client",    "notes": "Full name" },
+        "reportDate":      { "type": "string",  "example": "2026-04-11",        "source": "advisor",   "notes": "Date of consultation" },
+        "advisorName":     { "type": "string",  "example": "Chester",           "source": "advisor",   "notes": "Advisor name for report header" },
+        "stage":           { "type": "string",  "example": "Consultation",      "source": "advisor",   "notes": "Pipeline stage: Intake / Consultation / Report Sent / Closed" },
+        "notes":           { "type": "string",  "example": "Prefers D19",       "source": "advisor",   "notes": "Free text advisor notes" }
+      },
+
+      "identity": {
+        "residency":       { "type": "enum",    "options": ["SC","PR","Foreigner"], "source": "client" },
+        "age":             { "type": "number",  "example": 35,                  "source": "client" },
+        "ageBracket":      { "type": "enum",    "options": ["<=35","36-45","46-50","51-55","56-60","61-65","66-70"], "source": "derived", "notes": "Derived from age" },
+        "maritalStatus":   { "type": "enum",    "options": ["Single","Married","Divorced","Widowed"], "source": "client" },
+        "coBuyerExists":   { "type": "boolean", "example": false,               "source": "client" },
+        "coBuyerAge":      { "type": "number",  "example": 0,                   "source": "client",    "notes": "0 if no co-buyer" },
+        "coBuyerAgeBracket": { "type": "enum",  "options": ["<=35","36-45","46-50","51-55","56-60","61-65","66-70"], "source": "derived" }
+      },
+
+      "income": {
+        "grossMonthlyA":   { "type": "number",  "example": 11279,               "source": "client",    "notes": "Primary applicant gross monthly salary" },
+        "grossMonthlyB":   { "type": "number",  "example": 0,                   "source": "client",    "notes": "Co-buyer gross monthly salary. 0 if none" },
+        "additionalIncome":{ "type": "number",  "example": 4500,                "source": "client",    "notes": "Rental, freelance, dividends — excluded from TDSR" },
+        "cpfRateA":        { "type": "number",  "example": 0.37,                "source": "derived",   "notes": "Total CPF rate based on age bracket" },
+        "cpfOARatioA":     { "type": "number",  "example": 0.6217,              "source": "derived",   "notes": "OA allocation ratio based on age bracket" },
+        "cpfMonthlyOA_A":  { "type": "number",  "example": 2594,                "source": "derived",   "notes": "Monthly CPF OA inflow: grossA * cpfRate * oaRatio" },
+        "netTakeHome":     { "type": "number",  "example": 13523,               "source": "derived" }
+      },
+
+      "commitments": {
+        "carLoanMonthly":  { "type": "number",  "example": 0,                   "source": "client" },
+        "personalLoanMonthly": { "type": "number", "example": 0,                "source": "client" },
+        "otherCommitments":{ "type": "number",  "example": 0,                   "source": "client",    "notes": "Any other monthly obligations counted in TDSR" },
+        "totalCommitments":{ "type": "number",  "example": 0,                   "source": "derived",   "notes": "Sum of all commitments above" }
+      },
+
+      "currentProperty": {
+        "ownsProperty":    { "type": "boolean", "example": true,                "source": "client" },
+        "propertyType":    { "type": "enum",    "options": ["HDB 2-Room","HDB 3-Room","HDB 4-Room","HDB 5-Room","HDB Executive","EC","Private Condo","Landed","None"], "source": "client" },
+        "district":        { "type": "string",  "example": "D19",               "source": "client" },
+        "marketValue":     { "type": "number",  "example": 650000,              "source": "client",    "notes": "Estimated current market value" },
+        "outstandingLoan": { "type": "number",  "example": 180000,              "source": "client" },
+        "monthlyMortgage": { "type": "number",  "example": 1200,                "source": "client",    "notes": "Current monthly mortgage payment (counts in TDSR)" },
+        "originalPrice":   { "type": "number",  "example": 400000,              "source": "client" },
+        "yearPurchased":   { "type": "number",  "example": 2015,                "source": "client" },
+        "netEquity":       { "type": "number",  "example": 470000,              "source": "derived",   "notes": "marketValue - outstandingLoan" },
+        "saleProceeds":    { "type": "number",  "example": 457000,              "source": "derived",   "notes": "netEquity minus 2% agent commission on sale" }
+      },
+
+      "funds": {
+        "cpfOA_A":         { "type": "number",  "example": 120000,              "source": "client",    "notes": "CPF OA balance — primary applicant" },
+        "cpfOA_B":         { "type": "number",  "example": 0,                   "source": "client",    "notes": "CPF OA balance — co-buyer. 0 if none" },
+        "cashSavings":     { "type": "number",  "example": 200000,              "source": "client" },
+        "otherLiquid":     { "type": "number",  "example": 50000,               "source": "client",    "notes": "Fixed deposits, investments realisable within 3mo" },
+        "giftOrSupport":   { "type": "number",  "example": 0,                   "source": "client",    "notes": "Family gift funds confirmed available" },
+        "totalFunds":      { "type": "number",  "example": 827000,              "source": "derived",   "notes": "cpfOA_A + cpfOA_B + cash + liquid + gift + MAX(0, saleProceeds)" }
+      },
+
+      "affordability": {
+        "maxAffordablePrice": { "type": "number", "example": 1730000,           "source": "derived",   "notes": "(grossTotal*0.55 - commitments) / 0.004774 / 0.75 — stress test at 4%" },
+        "tdsrHeadroom":    { "type": "number",  "example": 6203,                "source": "derived",   "notes": "grossTotal*0.55 - commitments ($/mo remaining for mortgage)" },
+        "tdsrUtilisation": { "type": "number",  "example": 0.00,                "source": "derived",   "notes": "Existing commitments as % of gross. 0 means clean slate" }
+      },
+
+      "goals": {
+        "primaryGoal":     { "type": "enum",    "options": ["Sell HDB → Buy Condo","Buy 1st Investment (SC)","Status Quo vs Upgrade","Sell 1 → Buy 2","HDB to HDB"], "source": "client" },
+        "riskTolerance":   { "type": "enum",    "options": ["Conservative","Balanced","Aggressive"], "source": "client" },
+        "purpose":         { "type": "enum",    "options": ["Own Stay","Pure Investment (Rental)","Own Stay + Investment"], "source": "client" },
+        "budgetCeiling":   { "type": "number",  "example": 1400000,             "source": "client" },
+        "carryTolerance":  { "type": "number",  "example": 2000,                "source": "client",    "notes": "Max negative monthly carry client is comfortable with ($/mo)" },
+        "targetIRR":       { "type": "number",  "example": 0.10,                "source": "client",    "notes": "Minimum acceptable equity IRR over holding period (decimal)" },
+        "holdingHorizon":  { "type": "string",  "example": "4-6",               "source": "client",    "notes": "Preferred holding period in years" },
+        "districtPrefs":   { "type": "string",  "example": "D14, D19",          "source": "client",    "notes": "Preferred districts — free text" },
+        "mustHaves":       { "type": "string",  "example": "MRT within 5 min",  "source": "client",    "notes": "Non-negotiables — free text" },
+        "dealBreakers":    { "type": "string",  "example": "No LRT only",       "source": "client",    "notes": "Hard exclusions — free text" }
+      },
+
+      "modellingOverrides": {
+        "_description": "Set by advisor during dashboard session. Override defaults for stress-testing and scenario modeling.",
+        "mortgageRateOverride":    { "type": "number", "example": 0.038,        "source": "advisor",   "notes": "Override default investment rate (3.8%). Use to simulate rate rises." },
+        "ownStayRateOverride":     { "type": "number", "example": 0.015,        "source": "advisor",   "notes": "Override default own-stay rate (1.5%)" },
+        "stressTestRateOverride":  { "type": "number", "example": 0.04,         "source": "advisor",   "notes": "Override MAS stress test rate (4.0%) for TDSR calc" },
+        "loanAmountOverride":      { "type": "number", "example": 0,            "source": "advisor",   "notes": "Manual override of loan amount beyond standard LTV. 0 = use standard LTV." },
+        "ltvOverride":             { "type": "number", "example": 0,            "source": "advisor",   "notes": "Override LTV ratio. 0 = use standard (0.75 first, 0.45 second)." },
+        "occupancyOverride":       { "type": "number", "example": 0.90,         "source": "advisor",   "notes": "Assumed occupancy rate for rental income" },
+        "holdingYearsOverride":    { "type": "number", "example": 5,            "source": "advisor",   "notes": "Exit horizon in years for IRR calculation" }
+      }
+    }
+  },
+
+  "ProjectDatabase": {
+    "_description": "One record per property project. Sheet B stores this. Dashboard loads this as its property database. The PropertyGuru scraper outputs records in this format.",
+    "fields": {
+      "id":              { "type": "number",  "example": 1,                     "source": "advisor",   "notes": "Unique project ID" },
+      "name":            { "type": "string",  "example": "Rivercove Residences", "source": "scraper/advisor" },
+      "priority":        { "type": "enum",    "options": ["PRIMARY","SECONDARY","MONITOR","CONDITIONAL","SPECULATIVE"], "source": "advisor" },
+      "district":        { "type": "string",  "example": "D19",                 "source": "scraper/advisor" },
+      "area":            { "type": "string",  "example": "Sengkang",            "source": "scraper/advisor" },
+      "type":            { "type": "enum",    "options": ["Post-MOP EC","Private Resale","New EC Launch","New Launch","Near-TOP Subsale","Landed"], "source": "scraper/advisor" },
+      "tenure":          { "type": "enum",    "options": ["99yr","999yr","Freehold"], "source": "scraper/advisor" },
+      "beds":            { "type": "string",  "example": "3BR/2BA",             "source": "scraper/advisor" },
+      "sqftMin":         { "type": "number",  "example": 904,                   "source": "scraper/advisor" },
+      "sqftMax":         { "type": "number",  "example": 958,                   "source": "scraper/advisor" },
+      "budgetMin":       { "type": "number",  "example": 1350000,               "source": "scraper/advisor" },
+      "budgetMax":       { "type": "number",  "example": 1430000,               "source": "scraper/advisor" },
+      "psfAvg":          { "type": "number",  "example": 1615,                  "source": "scraper/advisor",  "notes": "Average PSF from recent transactions or asking price" },
+      "rent":            { "type": "number",  "example": 3800,                  "source": "advisor",   "notes": "Estimated monthly rent for target unit. 0 if not yet determinable." },
+      "mrt":             { "type": "string",  "example": "Sengkang NEL",        "source": "scraper/advisor" },
+      "mrtWalkMins":     { "type": "number",  "example": 8,                     "source": "scraper/advisor",  "notes": "Walk time in minutes to nearest MRT" },
+      "topYear":         { "type": "number",  "example": 2020,                  "source": "scraper/advisor",  "notes": "TOP year (completion year)" },
+      "ageYears":        { "type": "number",  "example": 6,                     "source": "derived",   "notes": "Current year minus TOP year" },
+      "developer":       { "type": "string",  "example": "Hoi Hup",             "source": "scraper/advisor" },
+      "totalUnits":      { "type": "number",  "example": 628,                   "source": "scraper/advisor" },
+      "bearCAGR":        { "type": "number",  "example": 0.02,                  "source": "advisor",   "notes": "Bear case annual capital growth rate" },
+      "baseCAGR":        { "type": "number",  "example": 0.04,                  "source": "advisor",   "notes": "Base case annual capital growth rate" },
+      "bullCAGR":        { "type": "number",  "example": 0.06,                  "source": "advisor",   "notes": "Bull case annual capital growth rate" },
+      "tag":             { "type": "string",  "example": "Capital Gain Play",   "source": "advisor",   "notes": "Short descriptor tag shown on dashboard card" },
+      "thesis":          { "type": "string",  "example": "Freshly MOP'd...",    "source": "advisor",   "notes": "Investment thesis narrative" },
+      "catalysts":       { "type": "array",   "example": ["EC price discovery","Waterfront"], "source": "advisor" },
+      "risks":           { "type": "array",   "example": ["LRT dependency"],    "source": "advisor" },
+      "targetUnit":      { "type": "string",  "example": "Mid-floor 5F-10F...", "source": "advisor",   "notes": "Specific unit recommendation" },
+      "pgListingUrl":    { "type": "string",  "example": "https://www.propertyguru.com.sg/...", "source": "scraper", "notes": "Source PropertyGuru URL for this project" },
+      "lastUpdated":     { "type": "string",  "example": "2026-04-11",          "source": "scraper/advisor",  "notes": "Date this record was last refreshed" }
+    }
+  },
+
+  "SessionState": {
+    "_description": "What gets saved as JSON when advisor clicks 'Save Session' in dashboard. Lets you resume exactly where you left off for a client.",
+    "fields": {
+      "savedAt":         { "type": "string",  "example": "2026-04-11T14:30:00" },
+      "clientProfile":   { "type": "ClientProfile", "notes": "Full client profile at time of save, including any manual overrides" },
+      "modellingState": {
+        "activeTab":     { "type": "string",  "example": "deepdive" },
+        "selectedProjectId": { "type": "number", "example": 1 },
+        "shortlistFilter": { "type": "string", "example": "PRIMARY" },
+        "shortlistSort": { "type": "string",  "example": "yield" },
+        "expandedCards": { "type": "array",   "example": [1, 2] }
+      },
+      "advisorNotes":    { "type": "string",  "example": "Alice prefers Rivercove. Revisit if rates drop below 3.5%." }
+    }
+  }
+}
