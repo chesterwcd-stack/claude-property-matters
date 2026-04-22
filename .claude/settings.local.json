@@ -7,7 +7,8 @@
       "Bash(grep -v \"^[^a-zA-Z]*$\")",
       "Bash(grep -E \".{10,}\")",
       "Bash(python *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }

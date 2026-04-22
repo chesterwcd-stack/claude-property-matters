@@ -884,3 +884,139 @@ Regardless of transaction type, mitigate these risks:
 - [ ] Sale/purchase timing aligned (if simultaneous transactions)
 
 If any box unchecked: Do not sign binding contract. Resolve first.
+
+## Exit Timing Decision Framework
+
+The most expensive mistake a buyer makes is **choosing the wrong exit window**. A 3-year hold can cost $50–100K more in Seller's Stamp Duty (SSD) than a 5-year hold on the same property. Yet most buyers don't think about exit strategy until they *need* to exit. This section provides a framework for deciding hold period at purchase, not at exit.
+
+### The SSD Cliff: The 36-Month Threshold
+
+Seller's Stamp Duty drops dramatically at 36 months:
+
+| Hold Period | SSD Rate | Example: $1.65M Sale | SSD Cost |
+|---|---|---|---|
+| Month 24 (2yr) | 8% | $1,650,000 | $132,000 |
+| Month 35 (3yr) | 4% | $1,650,000 | $66,000 |
+| **Month 36 (3yr)** | **0%** | **$1,650,000** | **$0** |
+| Month 60 (5yr) | 0% | $1,650,000 | $0 |
+
+**The swing**: Between Month 35 and Month 36, SSD *disappears*. This is a binary cliff, not a gradient. On a $1.65M property, it's a $66,000 swing — equivalent to **40+ months of rental income** on a $1,500/mo tenant.
+
+### Hold Period Sweep: Finding Your Breakeven
+
+Before purchase, use the **Hold Period Sweep** tool in the Deep Dive tab to see what IRR you'll achieve at different hold periods under bear/base/bull scenarios.
+
+**Example table** (fictional property, $800K purchase, 70% LTV, 3% rate, $1,500/mo carry):
+
+| Hold (months) | Exit Price (Base) | Net Cash | SSD Active | IRR | Hit 10% Target? |
+|---|---|---|---|---|---|
+| 12 | $850K | $12K | Yes (12%) | 1.5% | ✗ |
+| 24 | $920K | $56K | Yes (8%) | 6.2% | ✗ |
+| 30 | $960K | $78K | Yes (4%) | 8.8% | ✗ |
+| **36** | **$1,000K** | **$142K** | **No** | **11.5%** | **✓** |
+| 48 | $1,080K | $195K | No | 13.2% | ✓ |
+| 60 | $1,160K | $250K | No | 14.5% | ✓ |
+
+Notice:
+- Rows 12–30 don't hit the 10% target IRR.
+- Month 36 row has bold green highlight: SSD expires, IRR jumps, and target is met.
+- Every additional month after Month 36 improves IRR slightly due to time-value math, but the big cliff is at Month 36.
+
+**What to discuss with client at purchase**:
+- "Based on your target IRR, you need to hold for at least 36–48 months for this to work."
+- If client says "I might need to exit in 2 years," either (a) find a different property with better cash flow, or (b) reset expectations to 6–8% IRR.
+- Document the intended hold period in the client file. Revisit it annually.
+
+### Forced Exit Scenarios: When the Plan Breaks
+
+Life happens. Job transfers, divorces, market crashes, medical emergencies. A good exit strategy accounts for forced exits.
+
+#### Scenario 1: Job Transfer (Month 24, forced exit)
+
+**Client situation**: $800K property, bought 2 years ago, but job transferred to Sydney. Must sell within 60 days.
+
+**Problem**: SSD is still active (8% on base-case exit price).
+
+**Solutions**:
+1. **Rent it out** for another 12 months via agent; fly back for viewings quarterly. Requires rental income to exceed carry cost + management fees (typically 8% of rent). 
+   - Pro: Hit the SSD cliff, avoid $66K penalty.
+   - Con: Landlord liability, tenant risk, currency exposure if income is in AUD.
+   
+2. **Exit now and absorb SSD** if the sale price is high enough to overcome it.
+   - Calculate: Net proceeds at Month 24 with 8% SSD vs projected proceeds if rented another 12 months.
+   - If bear-case exit price at Month 36 *minus* rental carry costs exceeds current-market net proceeds, rent it out.
+   
+3. **Sell on a loss** (if bear-case prevails). Cut losses early rather than hoping.
+   - Use the Required Exit Price Solver to see what exit price you need to break even; compare to current market listings.
+
+#### Scenario 2: Personal Circumstance (Job loss, health, family)
+
+Forced exits driven by job loss or medical emergency usually can't wait 36 months.
+
+**Mitigation at purchase**:
+- Ensure the property has positive cash flow (rent > carry) so it can be sustained as a rental for 2–3 years while searching for new income.
+- Keep 6–12 months liquid buffer in emergency fund (non-negotiable). Never borrow the full acquisition cost.
+- Stress-test affordability: Can the client sustain carry costs on *spouse's income alone*? If married.
+
+**At exit time**:
+- Weigh net proceeds *today* vs projected proceeds in 12 months.
+- If both spouses working, ensure one has stable income to cover carry costs during hold-over.
+
+#### Scenario 3: Market Crash (Month 24, bear case realized)
+
+Property has depreciated 10%. Exit price is now $720K instead of $920K (base case).
+
+**Decision logic**:
+1. Calculate net proceeds under bear case *with* SSD (Month 24): $720K − 8% SSD − loan − legal ≈ $480K net.
+2. Project bear-case exit at Month 60 (no SSD): $720K × 1.02^3 (2% CAGR) ≈ $765K; net ≈ $590K.
+3. Is the extra $110K worth 36 more months of negative cash flow? Depends on monthly carry cost.
+   - If carry is $1,500/mo and property has rent of $1,800/mo, you're *positive* $300/mo. Hold it.
+   - If carry is $2,000/mo with no rent (owner-occupied), you're negative $2,000/mo. Cut losses at Month 24 and reset capital elsewhere.
+
+**Key insight**: A forced exit in a bear market is *not* a reason to panic-sell at the worst moment. If the property cash-flows positively, rent it out and wait for the cycle. If it cash-flows negatively and you have no emergency buffer, exit and redeploy capital to higher-conviction plays.
+
+### Stress-Testing Affordability: Single-Income Scenario
+
+When advising a client, always ask: "If one of you lost your job tomorrow, could you sustain this property for 12 months without selling?"
+
+**Worked example**:
+- Couple: HHI $180K ($90K each)
+- Property: $800K, 70% LTV, carry cost $1,500/mo
+- Rental income: $1,800/mo (covers carry with $300/mo buffer)
+
+**Stress test**: Spouse A loses job.
+- Remaining income: $90K/yr = $7,500/mo gross
+- Affordability on remaining property + carry: TDSR check at $7,500 income
+  - If they hit TDSR ceiling (55%), they can still afford carry; might need to cut discretionary spending.
+  - If rental income is passive (not affected by job loss), property sustains itself.
+  
+**Verdict**: Safe to hold property even on single income, because rent covers carry.
+
+**Alternative scenario**: Client is self-employed (volatile income).
+- Build in 6 months of carry costs as emergency buffer *at purchase*.
+- Property must be cash-flow positive or near-breakeven.
+- Never buy a property that *requires* your full income to sustain carry.
+
+### Decision Framework: When to Hold vs When to Exit
+
+| Signal | Hold (Wait for Month 36+) | Exit Now (Absorb SSD) |
+|---|---|---|
+| **Cash flow** | Positive (rent > carry) | Negative or breakeven |
+| **Market** | Stable or appreciating | Crashing; capital better deployed elsewhere |
+| **Personal** | Stable; no life event | Job loss, relocation, medical emergency |
+| **Target IRR** | Month 36 clears it | Month 36 still below target |
+| **Carry burden** | Manageable on single income | Unsustainable; client stressed |
+
+### Strategic Principle: Plan the Exit at Purchase
+
+**The best time to decide your exit strategy is at purchase, not at exit.** 
+
+When a client is signing contracts, ask:
+- "When do you see yourself exiting this property? 3 years, 5 years, 10 years?"
+- "What's your target annual return? 6%, 10%, 15%?"
+- "If you had to exit in an emergency (job loss, medical), could you sustain carry costs on your spouse's income alone?"
+- "Are you buying for capital appreciation, cash flow, or both?"
+
+Use the **Hold Period Sweep** and **Required Exit Price Solver** tools to show the client exactly what IRR they'll achieve at their intended hold period under base/bear/bull scenarios. Write it down. File it. Revisit annually.
+
+When an exit *actually* becomes necessary — whether planned or forced — the decision logic is already clear. You're not making emotional decisions in a pressure situation; you're executing a strategy laid out 3–5 years ago.

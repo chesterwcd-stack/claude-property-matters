@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { DEFAULTS, calcBSD, calcABSD, calcMonthlyMortgage, calcRemainingLoan, solveIRR, fmt, calcSSD, calcCPFTotalRefund, calcNetProceeds, calcHoldPeriodSweep, calcRequiredExitPrice, calcExitPrice, calcExitEquity, deriveProjectMetrics, computeBadges, computeMoatScores } from "./sg-property-engine";
 
 // ════════════════════════════════════════════════════════════
@@ -61,7 +61,7 @@ const fCarry = fmt.monthlyCarry;
 // ════════════════════════════════════════════════════════════
 const DEFAULT_PROFILE = {
   name: "Sample Client", residency: "SC", age: 35, ageBracketA: "<=35",
-  grossIncomeA: 11279, grossIncomeB: 0, additionalIncome: 4500, ageBracketB: "<=35",
+  grossIncomeA: 10000, grossIncomeB: 0, additionalIncome: 4500, ageBracketB: "<=35",
   existingCommitments: 0,
   cpfOA_A: 120000, cpfOA_B: 0, cashSavings: 200000, otherLiquid: 50000, giftSupport: 0,
   currentProperty: { owns: true, type: "HDB 4-Room", district: "D19 Sengkang", marketValue: 650000, outstandingMortgage: 180000, monthlyMortgage: 1200, originalPrice: 400000, yearPurchased: 2015 },
@@ -84,16 +84,34 @@ function Metric({ label, value, sub, accent, large }) {
   </div>;
 }
 function SectionHeader({ children }) { return <div style={{ fontSize:11, fontWeight:700, color:"#0F4C81", fontFamily:fonts.mono, letterSpacing:1.5, textTransform:"uppercase", padding:"12px 0 6px", borderBottom:"2px solid #E8F1FA" }}>{children}</div>; }
-function InputRow({ label, value, onChange, type = "number", note, options }) {
+function Tooltip({ text }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span style={{ position:"relative", display:"inline-flex", alignItems:"center", marginLeft:5, verticalAlign:"middle" }}
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <span style={{ fontSize:9, color:"#90A4AE", cursor:"help", border:"1px solid #B0BEC5", borderRadius:"50%", width:14, height:14, display:"inline-flex", alignItems:"center", justifyContent:"center", fontWeight:700, lineHeight:1, userSelect:"none" }}>i</span>
+      {show && (
+        <div style={{ position:"absolute", left:"calc(100% + 8px)", top:"50%", transform:"translateY(-50%)", zIndex:200, background:"#1A1A2E", color:"#E0E0E0", fontSize:10, fontFamily:fonts.sans, padding:"8px 10px", borderRadius:4, width:250, lineHeight:1.6, pointerEvents:"none", boxShadow:"0 4px 12px rgba(0,0,0,0.4)" }}>
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+function InputRow({ label, value, onChange, type = "number", note, options, comma = false }) {
+  const inputStyle = { flex:"0 0 180px", padding:"6px 8px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:12, fontFamily:fonts.mono, color:"#0000FF", background:"#F0F7FF" };
   return <div style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
     <span style={{ flex:"0 0 240px", fontSize:12, color:"#444", fontFamily:fonts.sans }}>{label}</span>
     {options ? (
-      <select value={value} onChange={e => onChange(type === "number" ? Number(e.target.value) : e.target.value)} style={{ flex:"0 0 180px", padding:"6px 8px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:12, fontFamily:fonts.mono, color:"#0000FF", background:"#F0F7FF" }}>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inputStyle }}>
         {options.map(o => <option key={typeof o === "object" ? o.value : o} value={typeof o === "object" ? o.value : o}>{typeof o === "object" ? o.label : o}</option>)}
       </select>
+    ) : comma ? (
+      <input type="text" value={value === "" || value == null ? "" : Number(value).toLocaleString("en-SG")} onChange={e => onChange(Number(e.target.value.replace(/,/g, "")) || 0)}
+        style={{ ...inputStyle, textAlign: "right" }} />
     ) : (
       <input type={type} value={value} onChange={e => onChange(type === "number" ? Number(e.target.value) : e.target.value)}
-        style={{ flex:"0 0 180px", padding:"6px 8px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:12, fontFamily:fonts.mono, color:"#0000FF", background:"#F0F7FF", textAlign: type === "number" ? "right" : "left" }} />
+        style={{ ...inputStyle, textAlign: type === "number" ? "right" : "left" }} />
     )}
     {note && <span style={{ fontSize:10, color:"#999", fontFamily:fonts.sans, flex:1 }}>{note}</span>}
   </div>;
@@ -138,10 +156,10 @@ function ProfileTab({ profile, setProfile }) {
         <InputRow label="Client Name" value={profile.name} onChange={v=>u("name",v)} type="text" />
         <InputRow label="Residency" value={profile.residency} onChange={v=>u("residency",v)} options={["SC","PR","Foreigner"]} />
         <InputRow label="Age Bracket (Primary)" value={profile.ageBracketA} onChange={v=>u("ageBracketA",v)} options={Object.keys(DEFAULTS.cpfRates)} />
-        <InputRow label="Gross Monthly Income (A)" value={profile.grossIncomeA} onChange={v=>u("grossIncomeA",v)} note={`Net: ${f$(profile.grossIncomeA*(1-cpf.employee))}`} />
-        <InputRow label="Co-Borrower Income (B)" value={profile.grossIncomeB} onChange={v=>u("grossIncomeB",v)} note="0 if single buyer" />
-        <InputRow label="Additional Income" value={profile.additionalIncome} onChange={v=>u("additionalIncome",v)} note="Excl. from TDSR" />
-        <InputRow label="Existing Commitments" value={profile.existingCommitments} onChange={v=>u("existingCommitments",v)} note="Car/personal loans" />
+        <InputRow label="Gross Monthly Income (A)" value={profile.grossIncomeA} onChange={v=>u("grossIncomeA",v)} comma note={`Net: ${f$(profile.grossIncomeA*(1-cpf.employee))}`} />
+        <InputRow label="Co-Borrower Income (B)" value={profile.grossIncomeB} onChange={v=>u("grossIncomeB",v)} comma note="0 if single buyer" />
+        <InputRow label="Additional Income" value={profile.additionalIncome} onChange={v=>u("additionalIncome",v)} comma note="Excl. from TDSR" />
+        <InputRow label="Existing Commitments" value={profile.existingCommitments} onChange={v=>u("existingCommitments",v)} comma note="Car/personal loans" />
         <div style={{ padding:"10px 0", borderTop:"1px solid #E8E8E8", marginTop:8, display:"flex", gap:20 }}>
           <Metric label="CPF OA Monthly" value={f$(cpfOAmonthly)} accent="#008000" />
           <Metric label="Net Household Income" value={f$(netTakeHome)} accent="#333" />
@@ -152,18 +170,18 @@ function ProfileTab({ profile, setProfile }) {
       {/* Right: Current Property & Funds */}
       <Card style={{ padding:16 }}>
         <SectionHeader>Current Property & Available Funds</SectionHeader>
-        <InputRow label="Currently Owns Property" value={profile.currentProperty.owns ? "Yes" : "No"} onChange={v=>u("currentProperty.owns",v==="Yes")} options={["Yes","No"]} />
+        <InputRow label="Currently Owns Property" type="text" value={profile.currentProperty.owns ? "Yes" : "No"} onChange={v=>u("currentProperty.owns",v==="Yes")} options={["Yes","No"]} />
         {profile.currentProperty.owns && <>
           <InputRow label="Property Type" value={profile.currentProperty.type} onChange={v=>u("currentProperty.type",v)} type="text" />
-          <InputRow label="Est. Market Value" value={profile.currentProperty.marketValue} onChange={v=>u("currentProperty.marketValue",v)} />
-          <InputRow label="Outstanding Mortgage" value={profile.currentProperty.outstandingMortgage} onChange={v=>u("currentProperty.outstandingMortgage",v)} />
+          <InputRow label="Est. Market Value" value={profile.currentProperty.marketValue} onChange={v=>u("currentProperty.marketValue",v)} comma />
+          <InputRow label="Outstanding Mortgage" value={profile.currentProperty.outstandingMortgage} onChange={v=>u("currentProperty.outstandingMortgage",v)} comma />
           <div style={{ padding:"6px 0", fontSize:12, color:"#2E7D32", fontFamily:fonts.mono, fontWeight:600 }}>Net Equity: {f$(profile.currentProperty.marketValue - profile.currentProperty.outstandingMortgage)} | Sale Proceeds: {f$(saleProceeds)}</div>
         </>}
         <div style={{ height:8 }} />
-        <InputRow label="CPF OA Balance (Primary)" value={profile.cpfOA_A} onChange={v=>u("cpfOA_A",v)} />
-        <InputRow label="CPF OA Balance (Co-Buyer)" value={profile.cpfOA_B} onChange={v=>u("cpfOA_B",v)} />
-        <InputRow label="Cash Savings" value={profile.cashSavings} onChange={v=>u("cashSavings",v)} />
-        <InputRow label="Other Liquid Assets" value={profile.otherLiquid} onChange={v=>u("otherLiquid",v)} />
+        <InputRow label="CPF OA Balance (Primary)" value={profile.cpfOA_A} onChange={v=>u("cpfOA_A",v)} comma />
+        <InputRow label="CPF OA Balance (Co-Buyer)" value={profile.cpfOA_B} onChange={v=>u("cpfOA_B",v)} comma />
+        <InputRow label="Cash Savings" value={profile.cashSavings} onChange={v=>u("cashSavings",v)} comma />
+        <InputRow label="Other Liquid Assets" value={profile.otherLiquid} onChange={v=>u("otherLiquid",v)} comma />
         <div style={{ padding:"10px 0", borderTop:"1px solid #E8E8E8", marginTop:8, fontSize:13, fontWeight:700, fontFamily:fonts.mono, color:"#0F4C81" }}>
           Total Funds: {f$(totalFunds)}
         </div>
@@ -177,8 +195,8 @@ function ProfileTab({ profile, setProfile }) {
         <InputRow label="Primary Goal" value={profile.goals.primaryGoal} onChange={v=>u("goals.primaryGoal",v)} options={["Sell HDB → Buy Condo","Buy 1st Investment (SC)","Status Quo vs Upgrade","Sell 1 → Buy 2","HDB to HDB"]} />
         <InputRow label="Risk Tolerance" value={profile.goals.riskTolerance} onChange={v=>u("goals.riskTolerance",v)} options={["Conservative","Balanced","Aggressive"]} />
         <InputRow label="Purpose" value={profile.goals.purpose} onChange={v=>u("goals.purpose",v)} options={["Own Stay","Pure Investment (Rental)","Own Stay + Investment"]} />
-        <InputRow label="Budget Ceiling ($)" value={profile.goals.budgetCeiling} onChange={v=>u("goals.budgetCeiling",v)} />
-        <InputRow label="Carry Tolerance ($/mo)" value={profile.goals.carryTolerance} onChange={v=>u("goals.carryTolerance",v)} />
+        <InputRow label="Budget Ceiling ($)" value={profile.goals.budgetCeiling} onChange={v=>u("goals.budgetCeiling",v)} comma />
+        <InputRow label="Carry Tolerance ($/mo)" value={profile.goals.carryTolerance} onChange={v=>u("goals.carryTolerance",v)} comma />
         <InputRow label="Target IRR (%)" value={profile.goals.targetIRR*100} onChange={v=>u("goals.targetIRR",v/100)} note="As whole number" />
       </div>
     </Card>
@@ -534,24 +552,47 @@ function ShortlistTab({ profile }) {
 // ════════════════════════════════════════════════════════════
 function DeepDiveTab({ profile }) {
   const [selectedId, setSelectedId] = useState(1);
+  const [rentOverride, setRentOverride] = useState(null);
+  const [maintenanceOverride, setMaintenanceOverride] = useState(null);
+  const [exitPriceOverride, setExitPriceOverride] = useState(null);
+  const [propertyMode, setPropertyMode] = useState("1");
+  const [investmentPropertyRate, setInvestmentPropertyRate] = useState(DEFAULTS.investmentRate);
+  const [currentPropertyRate, setCurrentPropertyRate] = useState(DEFAULTS.mortgageRate);
+  const [currentPropertyMortgage, setCurrentPropertyMortgage] = useState(null);
+  const [cpfPrimaryAlloc, setCpfPrimaryAlloc] = useState(null);
+  const [cpfSecondaryAlloc, setCpfSecondaryAlloc] = useState(0);
+  const [monthlyExpensesOverride, setMonthlyExpensesOverride] = useState(null);
+  const [propertyTaxOverride, setPropertyTaxOverride] = useState(null);
+  const [maintenanceFeeOverride, setMaintenanceFeeOverride] = useState(null);
+  const [utilitiesOverride, setUtilitiesOverride] = useState(null);
   const project = PROJECTS.find(p => p.id === selectedId) || PROJECTS[0];
   const mid = (project.budgetMin + project.budgetMax) / 2;
+
+  useEffect(() => {
+    setRentOverride(null); setMaintenanceOverride(null); setExitPriceOverride(null);
+    setPropertyMode("1"); setInvestmentPropertyRate(DEFAULTS.investmentRate); setCurrentPropertyMortgage(null);
+  }, [selectedId]);
 
   const analysis = useMemo(() => {
     const price = mid;
     const bsd = calcBSD(price);
     const absd = calcABSD(price, profile.residency, 0);
+    const absdRate = (DEFAULTS.absd[profile.residency] || DEFAULTS.absd.SC)[0];
     const legalFees = DEFAULTS.legalFees;
     const reno = DEFAULTS.renoFurnishing;
     const downpayment = price * 0.25;
     const loan = price * 0.75;
     const upfront = downpayment + bsd + absd + legalFees + reno;
     const mortgage = calcMonthlyMortgage(loan, DEFAULTS.investmentRate);
-    const adjRent = project.rent * DEFAULTS.occupancyRate;
-    const propTax = project.rent * DEFAULTS.avPctOfRent * DEFAULTS.propTaxRateNROC;
-    const carry = project.rent > 0 ? adjRent - mortgage - DEFAULTS.maintenanceMthly - propTax : null;
-    const grossYield = project.rent > 0 ? (project.rent * 12) / price : 0;
-    const remLoan5 = calcRemainingLoan(loan, DEFAULTS.investmentRate, 30, 5);
+    const effectiveRent = rentOverride ?? project.rent;
+    const effectiveMaintenance = maintenanceOverride ?? DEFAULTS.maintenanceMthly;
+    const mortgageAtRate = calcMonthlyMortgage(loan, investmentPropertyRate);
+    const mortgageAtStressTest = calcMonthlyMortgage(loan, DEFAULTS.stressTestRate);
+    const adjRent = effectiveRent * DEFAULTS.occupancyRate;
+    const propTax = effectiveRent * DEFAULTS.avPctOfRent * DEFAULTS.propTaxRateNROC;
+    const carry = effectiveRent > 0 ? adjRent - mortgageAtRate - effectiveMaintenance - propTax : null;
+    const grossYield = effectiveRent > 0 ? (effectiveRent * 12) / price : 0;
+    const remLoan5 = calcRemainingLoan(loan, investmentPropertyRate, 30, 5);
 
     const scenarios = {};
     for (const [label, cagr] of [["bear", project.bearCAGR], ["base", project.baseCAGR], ["bull", project.bullCAGR]]) {
@@ -567,8 +608,8 @@ function DeepDiveTab({ profile }) {
       scenarios[label] = { cagr, exitPrice, exitEquity, irr };
     }
 
-    return { price, bsd, absd, legalFees, reno, downpayment, loan, upfront, mortgage, adjRent, propTax, carry, grossYield, remLoan5, scenarios };
-  }, [selectedId, profile, mid, project]);
+    return { price, bsd, absd, absdRate, legalFees, reno, downpayment, loan, upfront, mortgage: mortgageAtRate, mortgageAtStressTest, effectiveRent, effectiveMaintenance, adjRent, propTax, carry, grossYield, remLoan5, scenarios };
+  }, [selectedId, profile, mid, project, rentOverride, maintenanceOverride, investmentPropertyRate];
 
   return <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
     {/* Project Selector */}
@@ -589,15 +630,16 @@ function DeepDiveTab({ profile }) {
       <Card style={{ padding:16 }}>
         <SectionHeader>Acquisition Cost Breakdown</SectionHeader>
         {[
-          ["Purchase Price (midpoint)", f$(analysis.price)],
-          ["Buyer Stamp Duty (BSD)", f$(analysis.bsd)],
-          ["ABSD", f$(analysis.absd), analysis.absd===0?"Zero — 1st property SC":null],
-          ["Legal Fees", f$(analysis.legalFees)],
-          ["Reno & Furnishing", f$(analysis.reno)],
-          ["Downpayment (25%)", f$(analysis.downpayment)],
-        ].map(([l,v,n]) => (
-          <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
-            <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans }}>{l}</span>
+          ["Purchase Price (midpoint)", f$(analysis.price), null, null],
+          ["Buyer Stamp Duty (BSD)", f$(analysis.bsd), null, "Tiered: 1% on first $180K · 2% next $180K · 3% next $640K · 4% next $500K · 5% next $1.5M · 6% above $3M"],
+          ["ABSD", f$(analysis.absd), analysis.absd===0?`Zero — ${profile.residency} 1st property`:null,
+            `SC: 0% (1st), 20% (2nd), 35% (3rd+)\nPR: 5% (1st), 30% (2nd), 35% (3rd+)\nForeigner: 60% on all\n\nUsing: ${profile.residency} · 1st purchase assumed · Rate applied: ${(analysis.absdRate*100).toFixed(0)}%`],
+          ["Legal Fees", f$(analysis.legalFees), null, "Estimated conveyancing fees. Actual varies by lawyer. Typically $2,500–$3,800."],
+          ["Reno & Furnishing", f$(analysis.reno), null, "Estimated costs to furnish for rental. Adjust via project data if actual quote available."],
+          ["Downpayment (25%)", f$(analysis.downpayment), null, "MAS rules: minimum 25% for 1st private property. At least 5% must be cash; balance can be CPF OA."],
+        ].map(([l,v,n,tip]) => (
+          <div key={l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
+            <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans, display:"flex", alignItems:"center" }}>{l}{tip && <Tooltip text={tip} />}</span>
             <div style={{ textAlign:"right" }}>
               <span style={{ fontSize:12, fontWeight:600, fontFamily:fonts.mono }}>{v}</span>
               {n && <span style={{ fontSize:10, color:"#2E7D32", marginLeft:8 }}>{n}</span>}
@@ -617,29 +659,311 @@ function DeepDiveTab({ profile }) {
       {/* Monthly Cashflow */}
       <Card style={{ padding:16 }}>
         <SectionHeader>Monthly Cash Flow (Year 1)</SectionHeader>
-        {[
-          ["Gross Monthly Rent", project.rent > 0 ? f$(project.rent) : "TBD", "#2E7D32"],
-          ["Occupancy-Adjusted Rent (90%)", f$(analysis.adjRent), "#2E7D32"],
-          ["Monthly Mortgage (P+I)", `-${f$(analysis.mortgage)}`, "#C62828"],
-          ["Maintenance (est.)", `-${f$(DEFAULTS.maintenanceMthly)}`, "#C62828"],
-          ["Property Tax (NROC est.)", `-${f$(analysis.propTax)}`, "#C62828"],
-        ].map(([l,v,col]) => (
-          <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
-            <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans }}>{l}</span>
-            <span style={{ fontSize:12, fontWeight:600, fontFamily:fonts.mono, color:col }}>{v}</span>
+        {/* Gross Monthly Rent — editable */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
+          <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans, display:"flex", alignItems:"center" }}>
+            Gross Monthly Rent
+            <Tooltip text={`Market rent estimate from project data. 90% occupancy rate applied (${fPct(DEFAULTS.occupancyRate)} of ${f$(analysis.effectiveRent)} = ${f$(analysis.adjRent)} effective). Edit the value to model different rental assumptions.`} />
+          </span>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <input type="text" value={rentOverride !== null ? Number(rentOverride).toLocaleString("en-SG") : (analysis.effectiveRent > 0 ? Number(analysis.effectiveRent).toLocaleString("en-SG") : "")}
+              onChange={e => setRentOverride(Number(e.target.value.replace(/,/g,"")) || 0)}
+              placeholder={f$(project.rent)}
+              style={{ width:90, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:11, fontFamily:fonts.mono, color:"#2E7D32", background: rentOverride !== null ? "#E8F5E9" : "#F8FFF8", textAlign:"right" }} />
+            {rentOverride !== null && <button onClick={() => setRentOverride(null)} style={{ fontSize:10, color:"#C62828", background:"none", border:"none", cursor:"pointer", padding:0 }}>✕</button>}
           </div>
-        ))}
+        </div>
+        {/* Occupancy-adjusted */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
+          <span style={{ fontSize:12, color:"#999", fontFamily:fonts.sans, paddingLeft:10 }}>Occupancy-Adjusted (90%)</span>
+          <span style={{ fontSize:12, fontWeight:600, fontFamily:fonts.mono, color:"#2E7D32" }}>{f$(analysis.adjRent)}</span>
+        </div>
+        {/* Mortgage */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
+          <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans, display:"flex", alignItems:"center" }}>
+            Monthly Mortgage (P+I)
+            <Tooltip text={`Principal + interest at ${(DEFAULTS.investmentRate*100).toFixed(1)}% p.a. over 30 years.\nLoan: ${f$(analysis.loan)} (75% LTV)\nStress test at ${(DEFAULTS.stressTestRate*100).toFixed(0)}% would be ${f$(calcMonthlyMortgage(analysis.loan, DEFAULTS.stressTestRate))}/mo`} />
+          </span>
+          <span style={{ fontSize:12, fontWeight:600, fontFamily:fonts.mono, color:"#C62828" }}>-{f$(analysis.mortgage)}</span>
+        </div>
+        {/* Maintenance — editable */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
+          <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans, display:"flex", alignItems:"center" }}>
+            Maintenance (est.)
+            <Tooltip text={`Monthly maintenance fee. Default: $${DEFAULTS.maintenanceMthly} (estimated). Varies by project size, age, and unit type. Edit to use actual figure.`} />
+          </span>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <input type="text" value={maintenanceOverride !== null ? Number(maintenanceOverride).toLocaleString("en-SG") : Number(analysis.effectiveMaintenance).toLocaleString("en-SG")}
+              onChange={e => setMaintenanceOverride(Number(e.target.value.replace(/,/g,"")) || 0)}
+              style={{ width:90, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:11, fontFamily:fonts.mono, color:"#C62828", background: maintenanceOverride !== null ? "#FEF2F2" : "#FFF8F8", textAlign:"right" }} />
+            {maintenanceOverride !== null && <button onClick={() => setMaintenanceOverride(null)} style={{ fontSize:10, color:"#C62828", background:"none", border:"none", cursor:"pointer", padding:0 }}>✕</button>}
+          </div>
+        </div>
+        {/* Property Tax */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #F5F5F5" }}>
+          <span style={{ fontSize:12, color:"#444", fontFamily:fonts.sans, display:"flex", alignItems:"center" }}>
+            Property Tax (NROC)
+            <Tooltip text={`Non-owner-occupier residential tax:\nAnnual Value = Gross Rent × ${(DEFAULTS.avPctOfRent*100).toFixed(0)}% = $${Math.round(analysis.effectiveRent*DEFAULTS.avPctOfRent*12).toLocaleString()}/yr\nTax = AV × ${(DEFAULTS.propTaxRateNROC*100).toFixed(0)}% NROC rate\n= ${f$(analysis.propTax)}/mo`} />
+          </span>
+          <span style={{ fontSize:12, fontWeight:600, fontFamily:fonts.mono, color:"#C62828" }}>-{f$(analysis.propTax)}</span>
+        </div>
         <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderTop:"2px solid " + (analysis.carry >= 0 ? "#2E7D32" : "#C62828"), marginTop:4 }}>
           <span style={{ fontSize:13, fontWeight:700, color:analysis.carry >= 0 ? "#2E7D32" : "#C62828" }}>NET MONTHLY CARRY</span>
           <span style={{ fontSize:13, fontWeight:700, fontFamily:fonts.mono, color:analysis.carry >= 0 ? "#2E7D32" : "#C62828" }}>{fCarry(analysis.carry)}</span>
         </div>
-        <div style={{ padding:"10px 0", display:"flex", gap:20 }}>
+        <div style={{ padding:"10px 0", display:"flex", gap:20, flexWrap:"wrap" }}>
           <Metric label="Gross Yield" value={fPct(analysis.grossYield)} accent={analysis.grossYield >= 0.037 ? "#2E7D32" : "#E65100"} />
           <Metric label="Annual Carry" value={analysis.carry != null ? f$(analysis.carry * 12) : "-"} accent="#C62828" />
           <Metric label="5yr Carry Reserve" value={analysis.carry != null ? f$(Math.abs(analysis.carry) * 12 * 5) : "-"} accent="#555" />
         </div>
+        {/* Rainy Day Fund */}
+        {(() => {
+          const rainyDay = (profile.monthlyExpenses + analysis.mortgage) * 24;
+          return (
+            <div style={{ marginTop:8, padding:"10px 12px", background:"#FFF8E1", borderRadius:6, border:"1px solid #FFE082" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontSize:11, color:"#795548", fontFamily:fonts.sans, display:"flex", alignItems:"center" }}>
+                  <span style={{ fontWeight:700, marginRight:4 }}>Rainy Day Fund Required</span>
+                  <Tooltip text={`2-year income-loss buffer:\n(Monthly expenses $${profile.monthlyExpenses.toLocaleString()} + Mortgage ${f$(analysis.mortgage)}) × 24 months\n= ${f$(rainyDay)}\n\nThis is the minimum cash reserve the buyer should hold in accessible savings after all upfront costs are paid.`} />
+                </span>
+                <span style={{ fontSize:14, fontWeight:700, fontFamily:fonts.mono, color:"#E65100" }}>{f$(rainyDay)}</span>
+              </div>
+              <div style={{ fontSize:10, color:"#795548", marginTop:4 }}>
+                Living expenses ${profile.monthlyExpenses.toLocaleString()}/mo + mortgage {f$(analysis.mortgage)}/mo × 24 months
+              </div>
+            </div>
+          );
+        })()}
       </Card>
     </div>
+
+    {/* Household Cash Position */}
+    <Card style={{ padding:16 }}>
+      <SectionHeader>Household Cash Position</SectionHeader>
+      <div style={{ display:"flex", gap:16, alignItems:"center", padding:"8px 0 12px", borderBottom:"1px solid #F0F0F0" }}>
+        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+          <span style={{ fontSize:10, color:"#666", fontFamily:fonts.mono, fontWeight:600 }}>MODE:</span>
+          <button onClick={() => setPropertyMode("1")} style={{ padding:"4px 10px", border:`1px solid ${propertyMode==="1"?"#0F4C81":"#D0D0D0"}`, borderRadius:4, background:propertyMode==="1"?"#0F4C81":"#fff", color:propertyMode==="1"?"#fff":"#333", fontSize:10, fontFamily:fonts.sans, cursor:"pointer", fontWeight:propertyMode==="1"?600:400 }}>1 Property</button>
+          <button onClick={() => setPropertyMode("2")} style={{ padding:"4px 10px", border:`1px solid ${propertyMode==="2"?"#0F4C81":"#D0D0D0"}`, borderRadius:4, background:propertyMode==="2"?"#0F4C81":"#fff", color:propertyMode==="2"?"#fff":"#333", fontSize:10, fontFamily:fonts.sans, cursor:"pointer", fontWeight:propertyMode==="2"?600:400 }}>Dual Property</button>
+        </div>
+        <span style={{ fontSize:10, color:"#999", fontFamily:fonts.sans, marginLeft:"auto" }}>Income shown as: Primary Only | Full Household (columns below)</span>
+      </div>
+
+      {/* Inputs Section */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, padding:"12px 0", borderBottom:"1px solid #F0F0F0", marginBottom:12 }}>
+        {/* Col 1: Mortgage Rates */}
+        <div>
+          <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Mortgage Rates</div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0" }}>
+            <span style={{ fontSize:11, color:"#555", fontFamily:fonts.sans, flex:1 }}>This Property Rate</span>
+            <input type="number" step="0.01" min="0" max="10" value={investmentPropertyRate*100} onChange={e => setInvestmentPropertyRate(Number(e.target.value)/100)} style={{ width:70, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#1A73E8", textAlign:"right" }} />
+            <span style={{ fontSize:10, color:"#666" }}>%</span>
+          </div>
+          <div style={{ fontSize:9, color:"#999", padding:"2px 0 6px" }}>Stress test (4%): {f$(calcMonthlyMortgage(analysis.loan, 0.04))}/mo</div>
+          {propertyMode==="2" && (
+            <>
+              <div style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0" }}>
+                <span style={{ fontSize:11, color:"#555", fontFamily:fonts.sans, flex:1 }}>Current Property Rate</span>
+                <input type="number" step="0.01" min="0" max="10" value={currentPropertyRate*100} onChange={e => setCurrentPropertyRate(Number(e.target.value)/100)} style={{ width:70, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#1A73E8", textAlign:"right" }} />
+                <span style={{ fontSize:10, color:"#666" }}>%</span>
+              </div>
+              <div style={{ fontSize:9, color:"#999", padding:"2px 0 6px" }}>Stress test (4%): {currentPropertyMortgage ? f$(calcMonthlyMortgage(currentPropertyMortgage, 0.04)) : "—"}/mo</div>
+            </>
+          )}
+        </div>
+
+        {/* Col 2: CPF & Expenses */}
+        <div>
+          <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>CPF & Living Expenses</div>
+          <div style={{ fontSize:9, color:"#666", padding:"4px 0", borderBottom:"1px solid #F0F0F0", marginBottom:6 }}>
+            <div>Primary CPF: {f$((cpfPrimaryAlloc ?? (profile.grossIncomeA * (DEFAULTS.cpfRates[profile.ageBracketA]?.total||0.37) * (DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio||0.62))))}</div>
+            {profile.grossIncomeB > 0 && <div>Secondary CPF: {f$((cpfSecondaryAlloc ?? 0))}</div>}
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
+            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Monthly Expenses</span>
+            <input type="text" value={monthlyExpensesOverride !== null ? Number(monthlyExpensesOverride).toLocaleString("en-SG") : Number(profile.monthlyExpenses).toLocaleString("en-SG")} onChange={e => setMonthlyExpensesOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:monthlyExpensesOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
+            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Property Tax</span>
+            <input type="text" value={propertyTaxOverride !== null ? Number(propertyTaxOverride).toLocaleString("en-SG") : Number(profile.propertyTax).toLocaleString("en-SG")} onChange={e => setPropertyTaxOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:propertyTaxOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
+            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Maintenance</span>
+            <input type="text" value={maintenanceFeeOverride !== null ? Number(maintenanceFeeOverride).toLocaleString("en-SG") : Number(profile.maintenance).toLocaleString("en-SG")} onChange={e => setMaintenanceFeeOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:maintenanceFeeOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
+            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Utilities</span>
+            <input type="text" value={utilitiesOverride !== null ? Number(utilitiesOverride).toLocaleString("en-SG") : Number(profile.utilities).toLocaleString("en-SG")} onChange={e => setUtilitiesOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:utilitiesOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Waterfall Calculation - displayed as 2 columns */}
+      {(() => {
+        const primaryIncome = profile.grossIncomeA;
+        const secondaryIncome = profile.grossIncomeB || 0;
+        const primaryCpf = DEFAULTS.cpfRates[profile.ageBracketA]?.employee || 0.20;
+        const secondaryCpf = profile.ageBracketB ? (DEFAULTS.cpfRates[profile.ageBracketB]?.employee || 0.20) : 0;
+        const primaryNetTakeHome = primaryIncome * (1 - primaryCpf);
+        const secondaryNetTakeHome = secondaryIncome * (1 - secondaryCpf);
+        const householdNetTakeHome = primaryNetTakeHome + secondaryNetTakeHome;
+
+        const mortgagePayment = analysis.mortgage;
+        const mortgageStressTest = analysis.mortgageAtStressTest;
+        const cpfToMortgage = cpfPrimaryAlloc !== null ? cpfPrimaryAlloc : (primaryIncome * (DEFAULTS.cpfRates[profile.ageBracketA]?.total || 0.37) * (DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio || 0.62));
+        const cpfSecondary = cpfSecondaryAlloc || 0;
+        const totalCpfOffset = cpfToMortgage + cpfSecondary;
+        const cashMortgageOutlay = Math.max(0, mortgagePayment - totalCpfOffset);
+
+        const monthlyExpenses = monthlyExpensesOverride !== null ? monthlyExpensesOverride : profile.monthlyExpenses;
+        const propertyTax = propertyTaxOverride !== null ? propertyTaxOverride : profile.propertyTax;
+        const maintenanceFee = maintenanceFeeOverride !== null ? maintenanceFeeOverride : profile.maintenance;
+        const utilities = utilitiesOverride !== null ? utilitiesOverride : profile.utilities;
+        const totalExpenses = monthlyExpenses + propertyTax + maintenanceFee + utilities + profile.existingCommitments;
+
+        const primaryRemaining = primaryNetTakeHome - cashMortgageOutlay - totalExpenses;
+        const householdRemaining = householdNetTakeHome - cashMortgageOutlay - totalExpenses;
+
+        const primaryTdsr = mortgagePayment / primaryIncome;
+        const primaryTdsrStress = mortgageStressTest / primaryIncome;
+        const householdTdsr = mortgagePayment / (householdNetTakeHome || 1);
+        const householdTdsrStress = mortgageStressTest / (householdNetTakeHome || 1);
+
+        return (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+            {/* Column 1: Primary Only */}
+            <div style={{ borderRight:"1px solid #E0E0E0", paddingRight:16 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Primary Earner Only</div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                <span>Gross Monthly</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono }}>{f$(primaryIncome)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#999" }}>
+                <span>CPF Deduction ({(primaryCpf*100).toFixed(0)}%)</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono }}>-{f$(primaryIncome * primaryCpf)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0 8px", fontSize:11, color:"#333", borderBottom:"1px solid #F0F0F0", fontWeight:600 }}>
+                <span>Net Take-Home</span>
+                <span style={{ fontFamily:fonts.mono }}>{f$(primaryNetTakeHome)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                <span>Mortgage (P+I) @ {(investmentPropertyRate*100).toFixed(2)}%</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono }}>({f$(mortgagePayment)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:9, color:"#999" }}>
+                <span style={{paddingLeft:10}}>Stress test @ 4%</span>
+                <span style={{ fontFamily:fonts.mono }}>({f$(mortgageStressTest)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                <span>Less CPF to Mortgage</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono, color:"#2E7D32" }}>+{f$(totalCpfOffset)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0 8px", fontSize:11, color:"#333", borderBottom:"1px solid #F0F0F0", fontWeight:600 }}>
+                <span>Cash Mortgage Outlay</span>
+                <span style={{ fontFamily:fonts.mono, color:"#C62828" }}>({f$(cashMortgageOutlay)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:10, color:"#666" }}>
+                <span>TDSR (actual)</span>
+                <span style={{ fontWeight:700, fontFamily:fonts.mono, color:primaryTdsr<=0.55?"#2E7D32":"#C62828" }}>{fPct(primaryTdsr)} {primaryTdsr<=0.55?"✓":"✗"}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0 8px", fontSize:10, color:"#666", borderBottom:"1px solid #F0F0F0" }}>
+                <span>TDSR (stress @ 4%)</span>
+                <span style={{ fontWeight:700, fontFamily:fonts.mono, color:primaryTdsrStress<=0.55?"#2E7D32":"#C62828" }}>{fPct(primaryTdsrStress)} {primaryTdsrStress<=0.55?"✓":"✗"}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11 }}>
+                <span style={{color:"#555"}}>Less Monthly Expenses</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono, color:"#C62828" }}>({f$(monthlyExpenses)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:10, color:"#666" }}>
+                <span>Property Tax · Maintenance · Utilities · Commitments</span>
+                <span style={{ fontFamily:fonts.mono }}>({f$(propertyTax + maintenanceFee + utilities + profile.existingCommitments)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", fontSize:12, fontWeight:700, color:primaryRemaining>=0?"#2E7D32":"#C62828", borderTop:"2px solid #0F4C81", marginTop:4 }}>
+                <span>NET REMAINING</span>
+                <span style={{ fontFamily:fonts.mono }}>{fCarry(primaryRemaining)}</span>
+              </div>
+              {primaryRemaining < 0 && (
+                <>
+                  <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#E65100", fontWeight:700 }}>
+                    <span>1-Year Buffer Needed</span>
+                    <span style={{ fontFamily:fonts.mono }}>{f$(Math.abs(primaryRemaining) * 12)}</span>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#E65100", fontWeight:700 }}>
+                    <span>2-Year Buffer Needed</span>
+                    <span style={{ fontFamily:fonts.mono }}>{f$(Math.abs(primaryRemaining) * 24)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Column 2: Full Household */}
+            <div>
+              <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Full Household</div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                <span>Gross Monthly (Both)</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono }}>{f$(primaryIncome + secondaryIncome)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#999" }}>
+                <span>CPF Deductions</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono }}>-{f$(primaryIncome * primaryCpf + secondaryIncome * secondaryCpf)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0 8px", fontSize:11, color:"#333", borderBottom:"1px solid #F0F0F0", fontWeight:600 }}>
+                <span>Net Take-Home</span>
+                <span style={{ fontFamily:fonts.mono }}>{f$(householdNetTakeHome)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                <span>Mortgage (P+I) @ {(investmentPropertyRate*100).toFixed(2)}%</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono }}>({f$(mortgagePayment)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:9, color:"#999" }}>
+                <span style={{paddingLeft:10}}>Stress test @ 4%</span>
+                <span style={{ fontFamily:fonts.mono }}>({f$(mortgageStressTest)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                <span>Less CPF Offsets (Both)</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono, color:"#2E7D32" }}>+{f$(totalCpfOffset)}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0 8px", fontSize:11, color:"#333", borderBottom:"1px solid #F0F0F0", fontWeight:600 }}>
+                <span>Cash Mortgage Outlay</span>
+                <span style={{ fontFamily:fonts.mono, color:"#C62828" }}>({f$(cashMortgageOutlay)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:10, color:"#666" }}>
+                <span>TDSR (actual)</span>
+                <span style={{ fontWeight:700, fontFamily:fonts.mono, color:householdTdsr<=0.55?"#2E7D32":"#C62828" }}>{fPct(householdTdsr)} {householdTdsr<=0.55?"✓":"✗"}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0 8px", fontSize:10, color:"#666", borderBottom:"1px solid #F0F0F0" }}>
+                <span>TDSR (stress @ 4%)</span>
+                <span style={{ fontWeight:700, fontFamily:fonts.mono, color:householdTdsrStress<=0.55?"#2E7D32":"#C62828" }}>{fPct(householdTdsrStress)} {householdTdsrStress<=0.55?"✓":"✗"}</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11 }}>
+                <span style={{color:"#555"}}>Less Monthly Expenses</span>
+                <span style={{ fontWeight:600, fontFamily:fonts.mono, color:"#C62828" }}>({f$(monthlyExpenses)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:10, color:"#666" }}>
+                <span>Property Tax · Maintenance · Utilities · Commitments</span>
+                <span style={{ fontFamily:fonts.mono }}>({f$(propertyTax + maintenanceFee + utilities + profile.existingCommitments)})</span>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", fontSize:12, fontWeight:700, color:householdRemaining>=0?"#2E7D32":"#C62828", borderTop:"2px solid #0F4C81", marginTop:4 }}>
+                <span>NET REMAINING</span>
+                <span style={{ fontFamily:fonts.mono }}>{fCarry(householdRemaining)}</span>
+              </div>
+              {householdRemaining < 0 && (
+                <>
+                  <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#E65100", fontWeight:700 }}>
+                    <span>1-Year Buffer Needed</span>
+                    <span style={{ fontFamily:fonts.mono }}>{f$(Math.abs(householdRemaining) * 12)}</span>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#E65100", fontWeight:700 }}>
+                    <span>2-Year Buffer Needed</span>
+                    <span style={{ fontFamily:fonts.mono }}>{f$(Math.abs(householdRemaining) * 24)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+    </Card>
 
     {/* Exit Scenarios */}
     <Card style={{ padding:16 }}>
@@ -673,9 +997,19 @@ function DeepDiveTab({ profile }) {
     {/* Net Proceeds Waterfall */}
     <Card style={{ padding:16 }}>
       <SectionHeader>Net Proceeds Waterfall (Base Case, Year 5)</SectionHeader>
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 0 10px", borderBottom:"1px solid #F0F0F0", marginBottom:4 }}>
+        <span style={{ fontSize:11, color:"#666", fontFamily:fonts.sans }}>Gross Exit Price Override</span>
+        <Tooltip text={`Override the base-case exit price for modelling purposes. Default uses base CAGR (${(project.baseCAGR*100).toFixed(0)}% p.a.) applied to purchase price over 5 years. Clear (✕) to revert to CAGR-derived price.`} />
+        <input type="text" value={exitPriceOverride !== null ? Number(exitPriceOverride).toLocaleString("en-SG") : ""}
+          onChange={e => setExitPriceOverride(Number(e.target.value.replace(/,/g,"")) || null)}
+          placeholder={f$(analysis.scenarios.base.exitPrice)}
+          style={{ width:110, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:11, fontFamily:fonts.mono, color:"#1A73E8", background: exitPriceOverride !== null ? "#E8F0FE" : "#F8FBFF", textAlign:"right" }} />
+        {exitPriceOverride !== null && <button onClick={() => setExitPriceOverride(null)} style={{ fontSize:10, color:"#C62828", background:"none", border:"none", cursor:"pointer", padding:0 }}>✕</button>}
+      </div>
       {(() => {
         const s = analysis.scenarios.base;
-        const proc = calcNetProceeds({ salePrice: s.exitPrice, outstandingLoan: analysis.remLoan5, holdMonths: 60, cpfPrincipalUsed: analysis.downpayment * 0.5, holdYears: 5 });
+        const effectiveExitPrice = exitPriceOverride ?? s.exitPrice;
+        const proc = calcNetProceeds({ salePrice: effectiveExitPrice, outstandingLoan: analysis.remLoan5, holdMonths: 60, cpfPrincipalUsed: analysis.downpayment * 0.5, holdYears: 5 });
         return [
           ["Gross Sale Price", proc.salePrice, "#1A73E8"],
           ["Agent Comm (1%)", -proc.agentComm, "#C62828"],
