@@ -1,39 +1,39 @@
 import { useState, useMemo } from "react";
-import { DEFAULTS, calcBSD, calcABSD, calcMonthlyMortgage, calcRemainingLoan, solveIRR, fmt } from "./sg-property-engine";
+import { DEFAULTS, calcBSD, calcABSD, calcMonthlyMortgage, calcRemainingLoan, solveIRR, fmt, calcSSD, calcCPFTotalRefund, calcNetProceeds, calcHoldPeriodSweep, calcRequiredExitPrice, calcExitPrice, calcExitEquity, deriveProjectMetrics, computeBadges, computeMoatScores } from "./sg-property-engine";
 
 // ════════════════════════════════════════════════════════════
 // PROJECT DATABASE (from Phase 3 master)
 // ════════════════════════════════════════════════════════════
 
 const PROJECTS = [
-  { id:1, name:"Rivercove Residences", priority:"PRIMARY", district:"D19", area:"Sengkang", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"904-958", budgetMin:1350000, budgetMax:1430000, psfAvg:1615, rent:3800, tenure:"99yr", mrt:"Tongkang LRT → Sengkang NEL", age:"~6yr (TOP 2020)", bearCAGR:0.02, baseCAGR:0.04, bullCAGR:0.06, tag:"Capital Gain Play",
+  { id:1, name:"Rivercove Residences", priority:"PRIMARY", district:"D19", area:"Sengkang", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"904-958", budgetMin:1350000, budgetMax:1430000, psfAvg:1615, rent:3800, tenure:"99yr", mrt:"Tongkang LRT → Sengkang NEL", age:"~6yr (TOP 2020)", bearCAGR:0.02, baseCAGR:0.04, bullCAGR:0.06, tag:"Capital Gain Play", annualTransactions:85, schoolTier:3, districtIncomeTier:4, unitCount:620, landSizeHa:4.2, exitAudienceRating:4, nearMillionHDB:true, hdbTownMopOver1k:true, rentalDemandRating:4,
     thesis:"Freshly MOP'd Oct 2025. EC-to-private price gap fully intact. Waterfront on Punggol Reservoir. Hundred Palms trajectory is the template.",
     catalysts:["EC price discovery phase","Waterfront reservoir facing","PDD adjacency","School cluster"], risks:["LRT dependency (not direct MRT)","D19 supply pipeline","3.0% yield = higher carry"], targetUnit:"Mid-floor 5F-10F, reservoir/greenery facing, 3BR Type A 904 sqft. Max $1,580 psf." },
-  { id:2, name:"The Antares", priority:"PRIMARY", district:"D14", area:"Mattar", type:"Private Resale", beds:"2BR/2BA", sqft:"657-732", budgetMin:1350000, budgetMax:1400000, psfAvg:2067, rent:4200, tenure:"99yr", mrt:"Mattar DTL (1 min sheltered)", age:"~4yr (TOP 2022)", bearCAGR:0.015, baseCAGR:0.035, bullCAGR:0.05, tag:"Yield & Carry Minimiser",
+  { id:2, name:"The Antares", priority:"PRIMARY", district:"D14", area:"Mattar", type:"Private Resale", beds:"2BR/2BA", sqft:"657-732", budgetMin:1350000, budgetMax:1400000, psfAvg:2067, rent:4200, tenure:"99yr", mrt:"Mattar DTL (1 min sheltered)", age:"~4yr (TOP 2022)", bearCAGR:0.015, baseCAGR:0.035, bullCAGR:0.05, tag:"Yield & Carry Minimiser", annualTransactions:142, schoolTier:1, districtIncomeTier:5, unitCount:380, landSizeHa:2.1, exitAudienceRating:5, nearMillionHDB:true, hdbTownMopOver1k:false, rentalDemandRating:5,
     thesis:"Highest yield on shortlist. Sheltered 1-min walk to Mattar MRT DTL. Three macro catalysts converge: Bidadari, Paya Lebar, Geylang rezoning.",
     catalysts:["Mattar MRT DTL direct","Paya Lebar Regional Centre","Bidadari transformation","Geylang rezoning"], risks:["Small unit 657 sqft","Story partially priced at $2,067 psf","Limited capital gain vs EC"], targetUnit:"657 sqft 2BR mid-high floor, quiet-facing. ~$1.35-1.38M." },
-  { id:3, name:"ECO at Bedok", priority:"SECONDARY", district:"D16", area:"Bedok South", type:"Private Resale", beds:"2BR/2BA", sqft:"700-850", budgetMin:1080000, budgetMax:1340000, psfAvg:1549, rent:3900, tenure:"99yr", mrt:"Tanah Merah EWL + Bedok South TEL", age:"~13yr (TOP 2013)", bearCAGR:0.02, baseCAGR:0.038, bullCAGR:0.05, tag:"Yield + TEL Catalyst",
+  { id:3, name:"ECO at Bedok", priority:"SECONDARY", district:"D16", area:"Bedok South", type:"Private Resale", beds:"2BR/2BA", sqft:"700-850", budgetMin:1080000, budgetMax:1340000, psfAvg:1549, rent:3900, tenure:"99yr", mrt:"Tanah Merah EWL + Bedok South TEL", age:"~13yr (TOP 2013)", bearCAGR:0.02, baseCAGR:0.038, bullCAGR:0.05, tag:"Yield + TEL Catalyst", annualTransactions:95, schoolTier:2, districtIncomeTier:3, unitCount:450, landSizeHa:3.5, exitAudienceRating:4, nearMillionHDB:false, hdbTownMopOver1k:true, rentalDemandRating:4,
     thesis:"Most material finding. TEL Bedok South confirmed 2026 — dual-line access. D16 PSF rose 44.4% (2020-2025). Best yield-per-dollar.",
     catalysts:["TEL Bedok South 2026","Dual-line MRT","Mature estate","HDB upgrader pool"], risks:["13yr old at purchase","Buyer financing may tighten","Lower capital gain ceiling"], targetUnit:"2BR 667-850 sqft, mid-floor, park facing. Buy below $1,550 psf." },
-  { id:4, name:"Treasure at Tampines", priority:"SECONDARY", district:"D18", area:"Tampines", type:"Private Resale", beds:"2BR/2BA", sqft:"~700", budgetMin:1190000, budgetMax:1270000, psfAvg:1700, rent:3600, tenure:"99yr", mrt:"Tampines EWL/DTL (10 min)", age:"~3yr (TOP 2023)", bearCAGR:0.015, baseCAGR:0.035, bullCAGR:0.045, tag:"Liquidity & Mainstream",
+  { id:4, name:"Treasure at Tampines", priority:"SECONDARY", district:"D18", area:"Tampines", type:"Private Resale", beds:"2BR/2BA", sqft:"~700", budgetMin:1190000, budgetMax:1270000, psfAvg:1700, rent:3600, tenure:"99yr", mrt:"Tampines EWL/DTL (10 min)", age:"~3yr (TOP 2023)", bearCAGR:0.015, baseCAGR:0.035, bullCAGR:0.045, tag:"Liquidity & Mainstream", annualTransactions:170, schoolTier:2, districtIncomeTier:4, unitCount:620, landSizeHa:2.8, exitAudienceRating:5, nearMillionHDB:true, hdbTownMopOver1k:true, rentalDemandRating:5,
     thesis:"Deepest resale liquidity — 170 units transacted 2025. Changi Business Park tenant base. Broad buyer pool.",
     catalysts:["Highest liquidity","Changi Biz Park","Tampines Regional Hub","Newer 2023"], risks:["2,200 units competition","10-min MRT walk","Yield below best"], targetUnit:"2BR mid-floor, pool/greenery facing. Stack critical." },
-  { id:5, name:"The Florence Residences", priority:"SECONDARY", district:"D19", area:"Hougang/Kovan", type:"Private Resale", beds:"2BR/2BA", sqft:"~700", budgetMin:1200000, budgetMax:1400000, psfAvg:1800, rent:3500, tenure:"99yr", mrt:"Hougang NEL (walk)", age:"~4yr (TOP 2022)", bearCAGR:0.015, baseCAGR:0.035, bullCAGR:0.05, tag:"D19 Private Alt",
+  { id:5, name:"The Florence Residences", priority:"SECONDARY", district:"D19", area:"Hougang/Kovan", type:"Private Resale", beds:"2BR/2BA", sqft:"~700", budgetMin:1200000, budgetMax:1400000, psfAvg:1800, rent:3500, tenure:"99yr", mrt:"Hougang NEL (walk)", age:"~4yr (TOP 2022)", bearCAGR:0.015, baseCAGR:0.035, bullCAGR:0.05, tag:"D19 Private Alt", annualTransactions:78, schoolTier:2, districtIncomeTier:4, unitCount:580, landSizeHa:3.8, exitAudienceRating:4, nearMillionHDB:true, hdbTownMopOver1k:false, rentalDemandRating:4,
     thesis:"Newer private in D19 with Hougang MRT NEL direct. Same district demand as Rivercove without EC price discovery.",
     catalysts:["D19 demand","Hougang NEL direct","Newer 2022","CRL future"], risks:["1,410 units competition","No EC catalyst","Lower yield"], targetUnit:"2BR mid-floor, well-facing. Budget $1.20-1.38M." },
-  { id:6, name:"Wandervale EC", priority:"MONITOR", district:"D23", area:"Choa Chu Kang", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"950-1100", budgetMin:1250000, budgetMax:1400000, psfAvg:1375, rent:3500, tenure:"99yr", mrt:"CCK NSL (10 min)", age:"~7yr (MOP 2023)", bearCAGR:0.015, baseCAGR:0.03, bullCAGR:0.04, tag:"Value EC / JLD",
+  { id:6, name:"Wandervale EC", priority:"MONITOR", district:"D23", area:"Choa Chu Kang", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"950-1100", budgetMin:1250000, budgetMax:1400000, psfAvg:1375, rent:3500, tenure:"99yr", mrt:"CCK NSL (10 min)", age:"~7yr (MOP 2023)", bearCAGR:0.015, baseCAGR:0.03, bullCAGR:0.04, tag:"Value EC / JLD", annualTransactions:42, schoolTier:3, districtIncomeTier:2, unitCount:420, landSizeHa:2.9, exitAudienceRating:2, nearMillionHDB:false, hdbTownMopOver1k:false, rentalDemandRating:2,
     thesis:"Lower-profile post-MOP EC with NSL to JLD. Less competitive buying = negotiation room.",
     catalysts:["NSL → JLD","EC value gap","Negotiable entry","Family 3BR"], risks:["JLD 10yr story","Weak rental submarket","Limited tenant pool"], targetUnit:"3BR 950+ sqft, mid-floor, greenery. Below $1,380 psf." },
-  { id:7, name:"Twin Fountains / Bellewoods", priority:"MONITOR", district:"D25", area:"Woodlands", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"1100-1250", budgetMin:1200000, budgetMax:1450000, psfAvg:1325, rent:3800, tenure:"99yr", mrt:"Admiralty NSL + Woodlands TEL", age:"~9yr (TOP 2016)", bearCAGR:0.015, baseCAGR:0.03, bullCAGR:0.045, tag:"Yield + Privatisation",
+  { id:7, name:"Twin Fountains / Bellewoods", priority:"MONITOR", district:"D25", area:"Woodlands", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"1100-1250", budgetMin:1200000, budgetMax:1450000, psfAvg:1325, rent:3800, tenure:"99yr", mrt:"Admiralty NSL + Woodlands TEL", age:"~9yr (TOP 2016)", bearCAGR:0.015, baseCAGR:0.03, bullCAGR:0.045, tag:"Yield + Privatisation", annualTransactions:38, schoolTier:2, districtIncomeTier:2, unitCount:480, landSizeHa:4.1, exitAudienceRating:2, nearMillionHDB:false, hdbTownMopOver1k:false, rentalDemandRating:3,
     thesis:"Highest yield ~3.5-4.0%. Twin Fountains privatises 2026. RTS Link end-2026. New EC benchmarks $1,800+ psf create gap.",
     catalysts:["Privatisation 2026","RTS Link","New EC benchmarks","Woodlands transformation"], risks:["Suppressed D25 ceiling","Thin exit pool","9yr aging","RTS timing"], targetUnit:"3BR 1,100+ sqft, mid-floor. Below $1,300 psf." },
-  { id:8, name:"Piermont Grand", priority:"MONITOR", district:"D19", area:"Punggol", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"840+", budgetMin:1430000, budgetMax:1500000, psfAvg:1735, rent:3600, tenure:"99yr", mrt:"Sumang LRT → Punggol NEL", age:"~3yr (TOP 2023)", bearCAGR:0.02, baseCAGR:0.04, bullCAGR:0.06, tag:"PDD Play (Budget Stretch)",
+  { id:8, name:"Piermont Grand", priority:"MONITOR", district:"D19", area:"Punggol", type:"Post-MOP EC", beds:"3BR/2BA", sqft:"840+", budgetMin:1430000, budgetMax:1500000, psfAvg:1735, rent:3600, tenure:"99yr", mrt:"Sumang LRT → Punggol NEL", age:"~3yr (TOP 2023)", bearCAGR:0.02, baseCAGR:0.04, bullCAGR:0.06, tag:"PDD Play (Budget Stretch)", annualTransactions:68, schoolTier:2, districtIncomeTier:4, unitCount:550, landSizeHa:3.6, exitAudienceRating:3, nearMillionHDB:true, hdbTownMopOver1k:false, rentalDemandRating:3,
     thesis:"Best physical product in Punggol — waterway-fronting, PDD adjacent, CDL. First PDD hotel confirmed 2026-27.",
     catalysts:["PDD hotel 2026-27","Waterway premium","SIT campus","CDL quality"], risks:["Above $1.4M budget","LRT dependency","Punggol supply","Narrow pool"], targetUnit:"3BR 840 sqft, waterway facing. Only at/below $1,700 psf." },
-  { id:9, name:"Rivelle Tampines EC", priority:"CONDITIONAL", district:"D18", area:"Tampines West", type:"New EC Launch", beds:"2BR/3BR", sqft:"TBD", budgetMin:1300000, budgetMax:1580000, psfAvg:1796, rent:0, tenure:"99yr", mrt:"Tampines West DTL", age:"New (TOP ~2029)", bearCAGR:0.03, baseCAGR:0.045, bullCAGR:0.06, tag:"EC First-Mover",
+  { id:9, name:"Rivelle Tampines EC", priority:"CONDITIONAL", district:"D18", area:"Tampines West", type:"New EC Launch", beds:"2BR/3BR", sqft:"TBD", budgetMin:1300000, budgetMax:1580000, psfAvg:1796, rent:0, tenure:"99yr", mrt:"Tampines West DTL", age:"New (TOP ~2029)", bearCAGR:0.03, baseCAGR:0.045, bullCAGR:0.06, tag:"EC First-Mover", annualTransactions:0, schoolTier:2, districtIncomeTier:4, unitCount:580, landSizeHa:3.2, exitAudienceRating:4, nearMillionHDB:false, hdbTownMopOver1k:false, rentalDemandRating:4,
     thesis:"First-mover EC play — buy at launch, hold through MOP, exit as privatised condo. Same thesis as Hundred Palms.",
     catalysts:["EC-to-private gap","CRL Tampines North","Tampines West emerging","First large dev"], risks:["5yr MOP lock-in","EC eligibility","TOP 2029-30","Budget tight 3BR"], targetUnit:"Only if EC eligible. 2BR for budget control." },
-  { id:10, name:"The Botany at Dairy Farm", priority:"SPECULATIVE", district:"D23", area:"Dairy Farm", type:"Near-TOP Subsale", beds:"2BR/2BA", sqft:"650-750", budgetMin:1200000, budgetMax:1380000, psfAvg:1950, rent:3000, tenure:"99yr", mrt:"Hillview DTL (walk)", age:"New (TOP 2027)", bearCAGR:0.01, baseCAGR:0.025, bullCAGR:0.04, tag:"Lifestyle / Speculative",
+  { id:10, name:"The Botany at Dairy Farm", priority:"SPECULATIVE", district:"D23", area:"Dairy Farm", type:"Near-TOP Subsale", beds:"2BR/2BA", sqft:"650-750", budgetMin:1200000, budgetMax:1380000, psfAvg:1950, rent:3000, tenure:"99yr", mrt:"Hillview DTL (walk)", age:"New (TOP 2027)", bearCAGR:0.01, baseCAGR:0.025, bullCAGR:0.04, tag:"Lifestyle / Speculative", annualTransactions:32, schoolTier:3, districtIncomeTier:2, unitCount:240, landSizeHa:1.5, exitAudienceRating:2, nearMillionHDB:false, hdbTownMopOver1k:false, rentalDemandRating:2,
     thesis:"Near-TOP subsale near nature. Dairy Farm differentiated. Investment thesis weak; lifestyle thesis strong.",
     catalysts:["Subsale discount","Nature differentiation","Hillview DTL","Near-TOP"], risks:["Narrow tenant pool","D23 supply glut","Limited liquidity","Speculative"], targetUnit:"Only if below $1,800 psf. Not core investment." },
 ];
@@ -115,7 +115,9 @@ function ProfileTab({ profile, setProfile }) {
   const cpfOAmonthly = profile.grossIncomeA * cpf.total * cpf.oaRatio;
   const netTakeHome = profile.grossIncomeA * (1 - cpf.employee) + (profile.grossIncomeB > 0 ? profile.grossIncomeB * (1 - (DEFAULTS.cpfRates[profile.ageBracketB]||cpf).employee) : 0) + profile.additionalIncome;
   const totalGross = profile.grossIncomeA + profile.grossIncomeB;
-  const saleProceeds = profile.currentProperty.owns ? profile.currentProperty.marketValue - profile.currentProperty.outstandingMortgage - profile.currentProperty.marketValue * 0.02 : 0;
+  // Sale proceeds: subtract agent commission AND CPF refund on current property
+  const cpfRefundOnCurrentProperty = profile.currentProperty.owns && profile.currentProperty.yearPurchased ? calcCPFTotalRefund(profile.currentProperty.cpfUsed || profile.cpfOA_A * 0.4, 2026 - profile.currentProperty.yearPurchased).totalRefund : 0;
+  const saleProceeds = profile.currentProperty.owns ? profile.currentProperty.marketValue - profile.currentProperty.outstandingMortgage - profile.currentProperty.marketValue * 0.02 - cpfRefundOnCurrentProperty : 0;
   const totalFunds = profile.cpfOA_A + profile.cpfOA_B + profile.cashSavings + profile.otherLiquid + profile.giftSupport + Math.max(0, saleProceeds);
   const maxPrice = totalGross > 0 ? Math.round(((totalGross * 0.55 - profile.existingCommitments) / 0.004774 / 0.75) / 10000) * 10000 : 0;
   const tdsrHeadroom = totalGross * 0.55 - profile.existingCommitments;
@@ -390,10 +392,19 @@ function ShortlistTab({ profile }) {
       const upfront = mid * 0.25 + calcBSD(mid) + DEFAULTS.legalFees + DEFAULTS.renoFurnishing;
       const annCarry = carry ? carry * 12 : 0;
       let baseIRR = null;
-      try { baseIRR = solveIRR([-upfront, annCarry, annCarry, annCarry, annCarry, annCarry + (baseExit - remLoan - baseExit * 0.01)]); } catch {}
+      try {
+        const baseProceeds = calcNetProceeds({ salePrice: baseExit, outstandingLoan: remLoan, holdMonths: 60, cpfPrincipalUsed: mid * 0.25 * 0.5, holdYears: 5 });
+        baseIRR = solveIRR([-upfront, annCarry, annCarry, annCarry, annCarry, annCarry + baseProceeds.netCashToSeller]);
+      } catch {}
       let bullIRR = null;
-      try { bullIRR = solveIRR([-upfront, annCarry, annCarry, annCarry, annCarry, annCarry + (bullExit - remLoan - bullExit * 0.01)]); } catch {}
-      return { ...p, _mid: mid, _loan: loan, _mortgage: mortgage, _grossYield: grossYield, _carry: carry, _baseExit: baseExit, _bullExit: bullExit, _baseIRR: baseIRR, _bullIRR: bullIRR, _withinBudget: p.budgetMin <= budget };
+      try {
+        const bullProceeds = calcNetProceeds({ salePrice: bullExit, outstandingLoan: remLoan, holdMonths: 60, cpfPrincipalUsed: mid * 0.25 * 0.5, holdYears: 5 });
+        bullIRR = solveIRR([-upfront, annCarry, annCarry, annCarry, annCarry, annCarry + bullProceeds.netCashToSeller]);
+      } catch {}
+      const derived = deriveProjectMetrics(p);
+      const moat = computeMoatScores(p, derived);
+      const badges = computeBadges(p, derived);
+      return { ...p, _mid: mid, _loan: loan, _mortgage: mortgage, _grossYield: grossYield, _carry: carry, _baseExit: baseExit, _bullExit: bullExit, _baseIRR: baseIRR, _bullIRR: bullIRR, _withinBudget: p.budgetMin <= budget, _moatScore: moat.composite, _badges: badges };
     });
   }, [profile]);
 
@@ -428,13 +439,14 @@ function ShortlistTab({ profile }) {
       <div style={{ overflowX:"auto" }}>
         <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
           <thead><tr style={{ background:"#F7F8FA" }}>
-            {["#","Project","Dist","Type","Budget Range","Yield","Carry/mo","Base IRR","Bull IRR","Priority"].map(h => (
+            {["#","Project","Dist","Type","Budget Range","Yield","Carry/mo","Base IRR","Bull IRR","MOAT Score","Exit Badges","Priority"].map(h => (
               <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, color:"#888", fontFamily:fonts.mono, fontWeight:600, borderBottom:"1px solid #E0E0E0", whiteSpace:"nowrap" }}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
             {filtered.map((p, i) => {
               const c = PRIO_COLORS[p.priority];
+              const moatColor = p._moatScore >= 40 ? "#2E7D32" : p._moatScore >= 30 ? "#E65100" : "#C62828";
               return <tr key={p.id} style={{ background:i%2===0?"#fff":"#FAFAFA", opacity:p._withinBudget?1:0.5 }}>
                 <td style={{ padding:"8px 10px", fontFamily:fonts.mono, color:"#888" }}>{p.id}</td>
                 <td style={{ padding:"8px 10px", fontWeight:600, whiteSpace:"nowrap" }}>{p.name}</td>
@@ -445,6 +457,15 @@ function ShortlistTab({ profile }) {
                 <td style={{ padding:"8px 10px", fontFamily:fonts.mono, color:"#C62828", fontSize:10 }}>{fCarry(p._carry)}</td>
                 <td style={{ padding:"8px 10px", fontFamily:fonts.mono }}>{p._baseIRR!=null?fPct(p._baseIRR):"-"}</td>
                 <td style={{ padding:"8px 10px", fontFamily:fonts.mono, color:"#1B5E20", fontWeight:600 }}>{p._bullIRR!=null?fPct(p._bullIRR):"-"}</td>
+                <td style={{ padding:"4px 8px", fontFamily:fonts.mono, fontWeight:700, color:moatColor, background: moatColor === "#2E7D32" ? "#E8F5E9" : moatColor === "#E65100" ? "#FFF3E0" : "#FEF2F2", borderRadius:3, textAlign:"center" }}>{p._moatScore}/50</td>
+                <td style={{ padding:"8px 10px", display:"flex", gap:2, fontSize:10 }}>
+                  <span style={{ color: p._badges.under1kmMRT ? "#2E7D32" : "#C62828" }}>⬤</span>
+                  <span style={{ color: p._badges.under10yrOld ? "#2E7D32" : "#C62828" }}>⬤</span>
+                  <span style={{ color: p._badges.nearMillionHDB ? "#2E7D32" : "#C62828" }}>⬤</span>
+                  <span style={{ color: p._badges.fiftyPlusDeals ? "#2E7D32" : "#C62828" }}>⬤</span>
+                  <span style={{ color: p._badges.top20School ? "#2E7D32" : "#C62828" }}>⬤</span>
+                  <span style={{ color: p._badges.hdbMopOver1k ? "#2E7D32" : "#C62828" }}>⬤</span>
+                </td>
                 <td style={{ padding:"8px 10px" }}><Badge text={p.priority} color="#fff" bg={c.badge} /></td>
               </tr>;
             })}
@@ -535,7 +556,11 @@ function DeepDiveTab({ profile }) {
     const scenarios = {};
     for (const [label, cagr] of [["bear", project.bearCAGR], ["base", project.baseCAGR], ["bull", project.bullCAGR]]) {
       const exitPrice = price * Math.pow(1 + cagr, 5);
-      const exitEquity = exitPrice - remLoan5 - exitPrice * 0.01;
+      const proceeds = calcNetProceeds({
+        salePrice: exitPrice, outstandingLoan: remLoan5, holdMonths: 60,
+        cpfPrincipalUsed: downpayment * 0.5, holdYears: 5,
+      });
+      const exitEquity = proceeds.netCashToSeller;
       const annCarry = carry ? carry * 12 : 0;
       let irr = null;
       try { irr = solveIRR([-upfront, annCarry, annCarry, annCarry, annCarry, annCarry + exitEquity]); } catch {}
@@ -643,6 +668,108 @@ function DeepDiveTab({ profile }) {
           </div>;
         })}
       </div>
+    </Card>
+
+    {/* Net Proceeds Waterfall */}
+    <Card style={{ padding:16 }}>
+      <SectionHeader>Net Proceeds Waterfall (Base Case, Year 5)</SectionHeader>
+      {(() => {
+        const s = analysis.scenarios.base;
+        const proc = calcNetProceeds({ salePrice: s.exitPrice, outstandingLoan: analysis.remLoan5, holdMonths: 60, cpfPrincipalUsed: analysis.downpayment * 0.5, holdYears: 5 });
+        return [
+          ["Gross Sale Price", proc.salePrice, "#1A73E8"],
+          ["Agent Comm (1%)", -proc.agentComm, "#C62828"],
+          ["SSD / Exit Tax", -proc.ssd, proc.ssd === 0 ? "#2E7D32" : "#C62828"],
+          ["Legal Fees", -proc.legalFeesSale, "#C62828"],
+          ["Gross Proceeds", proc.grossProceeds, "#555"],
+          ["Remaining Loan", -proc.outstandingLoan, "#C62828"],
+          ["After Loan", proc.afterLoan, "#555"],
+          ["CPF Refund (Prin+Int)", -proc.cpfRefund.totalRefund, "#C62828"],
+          ["NET CASH TO SELLER", proc.netCashToSeller, "#0F4C81"],
+        ].map(([l, v, col], i) => (
+          <div key={l} style={{ display:"flex", justifyContent:"space-between", padding:"6px 0", borderBottom: i === 8 ? "2px solid #0F4C81" : "1px solid #F5F5F5" }}>
+            <span style={{ fontSize: i === 8 ? 12 : 11, fontWeight: i === 8 ? 700 : 400, color:"#444", fontFamily:fonts.sans }}>{l}</span>
+            <span style={{ fontSize: i === 8 ? 13 : 11, fontWeight: i === 8 ? 700 : 600, fontFamily:fonts.mono, color: col || "#1A1A2E" }}>{f$(v)}</span>
+          </div>
+        ));
+      })()}
+    </Card>
+
+    {/* Hold Period Sweep */}
+    <Card style={{ padding:16 }}>
+      <SectionHeader>Hold Period IRR Sweep (Base CAGR {fPct(project.baseCAGR)})</SectionHeader>
+      {(() => {
+        const sweep = calcHoldPeriodSweep({
+          purchasePrice: analysis.price, upfrontCash: analysis.upfront, loanAmount: analysis.loan,
+          mortgageRate: DEFAULTS.investmentRate, loanTenure: 30, monthlyCarry: analysis.carry || 0,
+          cagr: project.baseCAGR, cpfPrincipalUsed: analysis.downpayment * 0.5,
+        });
+        const targetIRR = profile.goals.targetIRR || 0.10;
+        return <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", fontSize:10, borderCollapse:"collapse", fontFamily:fonts.mono }}>
+            <thead><tr style={{ background:"#F0F7FF" }}>
+              {["Hold","Exit $","Net Cash","SSD","IRR","Target?"].map(h => (
+                <th key={h} style={{ padding:"6px 8px", textAlign:"right", fontSize:9, color:"#666", fontWeight:600, borderBottom:"1px solid #D0E4F5" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {sweep.map((row, i) => {
+                const ssdCliff = row.holdMonths === 36;
+                const meetsTarget = row.irr != null && row.irr >= targetIRR;
+                return <tr key={row.holdMonths} style={{ background: ssdCliff ? "#FFFDE7" : i % 2 === 0 ? "#fff" : "#F7F8FA" }}>
+                  <td style={{ padding:"4px 8px", textAlign:"right", color:"#555" }}>{row.holdYears.toFixed(0)}yr</td>
+                  <td style={{ padding:"4px 8px", textAlign:"right", color:"#1A73E8", fontWeight:600 }}>{f$m(row.exitPrice)}</td>
+                  <td style={{ padding:"4px 8px", textAlign:"right", color:"#2E7D32", fontWeight:600 }}>{f$k(row.netCashToSeller)}</td>
+                  <td style={{ padding:"4px 8px", textAlign:"right", color: row.ssdActive ? "#C62828" : "#888" }}>{row.ssd > 0 ? fPct(row.ssdRateApplied) : "—"}</td>
+                  <td style={{ padding:"4px 8px", textAlign:"right", color:"#1A1A2E", fontWeight:700 }}>{row.irrPercent ? `${row.irrPercent}%` : "—"}</td>
+                  <td style={{ padding:"4px 8px", textAlign:"center", color: meetsTarget ? "#2E7D32" : "#C62828" }}>{meetsTarget ? "✓" : "✗"}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>;
+      })()}
+    </Card>
+
+    {/* MOAT Score Summary */}
+    <Card style={{ padding:16 }}>
+      <SectionHeader>Exit Potential Scoring (MOAT Framework)</SectionHeader>
+      {(() => {
+        const derived = deriveProjectMetrics(project);
+        const moat = computeMoatScores(project, derived);
+        const badges = computeBadges(project, derived);
+        return <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+          <div>
+            <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8 }}>MOAT DIMENSIONS (1–5 scale)</div>
+            {Object.entries(moat).filter(([k]) => k !== 'composite').map(([k, v]) => (
+              <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"4px 0", borderBottom:"1px solid #F5F5F5" }}>
+                <span style={{ fontSize:11, color:"#666", fontFamily:fonts.sans }}>{k.replace(/([A-Z])/g, ' $1').trim()}</span>
+                <span style={{ fontSize:11, fontWeight:700, fontFamily:fonts.mono, color: v >= 4 ? "#2E7D32" : v >= 3 ? "#E65100" : "#C62828", background: v >= 4 ? "#E8F5E9" : v >= 3 ? "#FFF3E0" : "#FEF2F2", padding:"2px 6px", borderRadius:3 }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderTop:"2px solid #0F4C81", marginTop:4, fontWeight:700 }}>
+              <span style={{ fontSize:11, color:"#0F4C81" }}>COMPOSITE</span>
+              <span style={{ fontSize:12, fontFamily:fonts.mono, color:"#0F4C81" }}>{moat.composite}/50</span>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8 }}>PRE-SCREENING BADGES</div>
+            {[
+              ["<1km MRT", badges.under1kmMRT],
+              ["<10yr old", badges.under10yrOld],
+              ["$1M+ HDB nearby", badges.nearMillionHDB],
+              ["50+ deals/yr", badges.fiftyPlusDeals],
+              ["Top 20 schools", badges.top20School],
+              ["HDB MOP 1k+", badges.hdbMopOver1k],
+            ].map(([l, p]) => (
+              <div key={l} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", borderBottom:"1px solid #F5F5F5" }}>
+                <span style={{ fontSize:11, color:"#666", fontFamily:fonts.sans, flex:1 }}>{l}</span>
+                <span style={{ fontSize:14, color: p ? "#2E7D32" : "#C62828", fontWeight:700 }}>{p ? "✓" : "✗"}</span>
+              </div>
+            ))}
+          </div>
+        </div>;
+      })()}
     </Card>
   </div>;
 }

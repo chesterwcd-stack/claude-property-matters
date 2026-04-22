@@ -499,3 +499,37 @@ A project doesn't exist in isolation. Nearby developments affect your property's
 - If your project is a late-mover: Expect to be priced lower but face less competition
 - If your project is in saturated area: Prepare for modest pricing and longer sales cycles
 
+---
+
+## Exit Readiness Scoring Integration
+
+The 10 MOAT dimensions (Bala's Curve, Landsize Density, District Disparity, Exit Audience, MRT Proximity, Parents' Attraction, Quantum Effect, Rental Demand, Region Disparity, Volume Effect) operationalize project-level analysis into a scored framework.
+
+### How MOAT Dimensions Map to Project-Level Data
+
+Each MOAT dimension is computed from observable project data:
+
+- **Quantum Effect**: Entry price (budgetMin) → percentage of households able to afford at TDSR 55% stress test
+- **Bala's Curve Effect**: Remaining lease (derived from tenure + age) → score curve for lease decay impact
+- **MRT Proximity**: Distance text (mrt field) → band lookup (0m–100m = 5 down to >1km = 1)
+- **Parents' Attraction Effect**: Nearest school tier → Top 20/50/100/None conversion to score
+- **District Disparity Effect**: District median household income → quintile mapping to score
+- **Region Disparity Effect**: District number → CCR/RCR/OCR-fringe/OCR-deep classification
+- **Landsize Density Effect**: Unit count ÷ land size hectares → units/ha → density score
+- **Exit Audience**: Manual assessment of buyer profile breadth (1–5)
+- **Rental Demand**: Manual assessment of rental tenant pool strength (1–5)
+- **Volume Effect**: Annual transaction count → score lookup table
+
+### Using MOAT Composite Score for Go/No-Go Decision
+
+After scoring a project across all 10 dimensions, sum the scores (max 50):
+
+- **40–50:** Excellent exit readiness. Wide buyer pool, good liquidity, low friction at exit.
+- **30–39:** Adequate exit readiness. May face some headwinds (narrow buyer pool or thin volume) but fundamentally sound.
+- **20–29:** Material exit headwinds. Expect longer sales timelines, possible price concessions at exit.
+- **<20:** Poor exit readiness. Significant risk of illiquid exit, extreme buyer pool constraints, or lease decay cliff.
+
+Use the MOAT score as a **quantified risk gauge** for exit feasibility, not as the sole decision criterion. A project with 35/50 MOAT score may still be a great own-stay property (exit risk immaterial if you're holding 15+ years). A project with 45/50 MOAT score is a strong exit-optimised choice.
+
+---
+

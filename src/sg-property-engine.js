@@ -164,6 +164,180 @@ export function calcEquityIRR({ upfrontCash, annualCarry, exitEquity, holdingYea
   return solveIRR(cashflows);
 }
 
+// ────────────────────────────────────────────────────────────
+// SECTION 9: EXIT POTENTIAL ANALYSIS ENGINE (Phase 3)
+// ────────────────────────────────────────────────────────────
+
+export function calcCPFTotalRefund(cpfPrincipalUsed, holdYears) {
+  if (cpfPrincipalUsed <= 0 || holdYears <= 0) return { principal: 0, accruedInterest: 0, totalRefund: 0 };
+  const cpfRate = 0.025;
+  const accruedInterest = Math.round(cpfPrincipalUsed * (Math.pow(1 + cpfRate, holdYears) - 1));
+  return {
+    principal: cpfPrincipalUsed,
+    accruedInterest,
+    totalRefund: cpfPrincipalUsed + accruedInterest,
+  };
+}
+
+export function calcNetProceeds({
+  salePrice, outstandingLoan, holdMonths, cpfPrincipalUsed = 0, holdYears = null,
+  agentCommRate = DEFAULTS.agentCommSell, legalFeesSale = 2500,
+}) {
+  const effectiveHoldYears = holdYears ?? holdMonths / 12;
+  const agentComm = Math.round(salePrice * agentCommRate);
+  const ssd = calcSSD(salePrice, holdMonths);
+  const cpfRefund = calcCPFTotalRefund(cpfPrincipalUsed, effectiveHoldYears);
+  const grossProceeds = salePrice - agentComm - ssd - legalFeesSale;
+  const afterLoan = grossProceeds - outstandingLoan;
+  const netCashToSeller = afterLoan - cpfRefund.totalRefund;
+
+  return {
+    salePrice, agentComm, ssd, legalFeesSale, grossProceeds, outstandingLoan, afterLoan,
+    cpfRefund, netCashToSeller, ssdActive: ssd > 0,
+    ssdRateApplied: holdMonths < 12 ? 0.12 : holdMonths < 24 ? 0.08 : holdMonths < 36 ? 0.04 : 0,
+  };
+}
+
+export function calcHoldPeriodSweep({
+  purchasePrice, upfrontCash, loanAmount, mortgageRate, loanTenure,
+  monthlyCarry, cagr, cpfPrincipalUsed = 0,
+  agentCommRate = DEFAULTS.agentCommSell, rentalGrowth = DEFAULTS.annualRentalGrowth,
+  minMonths = 12, maxMonths = 84, stepMonths = 6,
+}) {
+  const results = [];
+  for (let m = minMonths; m <= maxMonths; m += stepMonths) {
+    const yrs = m / 12;
+    const exitPrice = calcExitPrice(purchasePrice, cagr, yrs);
+    const remLoan = calcRemainingLoan(loanAmount, mortgageRate, loanTenure, yrs);
+    const proceeds = calcNetProceeds({
+      salePrice: exitPrice, outstandingLoan: remLoan, holdMonths: m,
+      cpfPrincipalUsed, holdYears: yrs, agentCommRate,
+    });
+
+    const cashflows = [-upfrontCash];
+    for (let yr = 1; yr <= Math.floor(yrs); yr++) {
+      cashflows.push(monthlyCarry * 12 * Math.pow(1 + rentalGrowth, yr - 1));
+    }
+    const partialYear = yrs - Math.floor(yrs);
+    if (partialYear > 0) {
+      cashflows.push(monthlyCarry * 12 * partialYear);
+    }
+    cashflows[cashflows.length - 1] += proceeds.netCashToSeller;
+
+    let irr = null;
+    try { irr = solveIRR(cashflows); } catch {}
+
+    results.push({
+      holdMonths: m, holdYears: yrs, exitPrice: Math.round(exitPrice),
+      ssd: proceeds.ssd, netCashToSeller: Math.round(proceeds.netCashToSeller),
+      cpfRefundTotal: proceeds.cpfRefund.totalRefund,
+      irr, irrPercent: irr !== null ? (irr * 100).toFixed(1) : null, ssdActive: proceeds.ssdActive,
+    });
+  }
+  return results;
+}
+
+export function calcRequiredExitPrice({
+  upfrontCash, loanAmount, mortgageRate, loanTenure,
+  monthlyCarry, holdYears, cpfPrincipalUsed = 0,
+  purchasePrice, targetIRR = 0.10,
+  agentCommRate = DEFAULTS.agentCommSell, rentalGrowth = DEFAULTS.annualRentalGrowth,
+}) {
+  const holdMonths = Math.round(holdYears * 12);
+
+  function computeIRRatPrice(exitPrice) {
+    const remLoan = calcRemainingLoan(loanAmount, mortgageRate, loanTenure, holdYears);
+    const proceeds = calcNetProceeds({
+      salePrice: exitPrice, outstandingLoan: remLoan, holdMonths, cpfPrincipalUsed, holdYears, agentCommRate,
+    });
+    const cashflows = [-upfrontCash];
+    for (let yr = 1; yr <= holdYears; yr++) {
+      cashflows.push(monthlyCarry * 12 * Math.pow(1 + rentalGrowth, yr - 1));
+    }
+    cashflows[cashflows.length - 1] += proceeds.netCashToSeller;
+    try { return solveIRR(cashflows); } catch { return -1; }
+  }
+
+  let lo = purchasePrice * 0.5, hi = purchasePrice * 3.0;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const irr = computeIRRatPrice(mid);
+    if (Math.abs(irr - targetIRR) < 1e-5) { lo = hi = mid; break; }
+    if (irr < targetIRR) lo = mid; else hi = mid;
+  }
+  const requiredExitPrice = Math.round((lo + hi) / 2);
+  const impliedCAGR = Math.pow(requiredExitPrice / purchasePrice, 1 / holdYears) - 1;
+
+  return {
+    requiredExitPrice, impliedCAGR, impliedCAGRPercent: (impliedCAGR * 100).toFixed(2), targetIRR,
+  };
+}
+
+// Helpers for exit potential scoring
+
+export function parseMRTDistance(mrtText = '') {
+  if (!mrtText) return 1000;
+  const text = mrtText.toLowerCase();
+  if (text.includes('1 min') || text.includes('sheltered')) return 80;
+  if (text.includes('2 min') || text.includes('walk')) return 150;
+  if (text.includes('5 min')) return 350;
+  if (text.includes('10 min')) return 700;
+  if (text.includes('direct') || text.includes('dtl') || text.includes('nel') || text.includes('ewl')) return 150;
+  return 700;
+}
+
+export function getRegionType(district = '') {
+  const d = parseInt(district.replace('D', ''));
+  if ([9, 10, 11].includes(d)) return 'CCR';
+  if ([1, 2, 3, 4, 7, 8, 12, 13, 14, 15].includes(d)) return 'RCR';
+  if ([5, 6, 16, 17].includes(d)) return 'OCR-fringe';
+  return 'OCR-deep';
+}
+
+export function deriveProjectMetrics(p = {}) {
+  const ageMatch = (p.age || '').match(/(\d+)yr/);
+  const ageYears = ageMatch ? parseInt(ageMatch[1]) : 5;
+  const isFH = (p.tenure || '').toUpperCase().includes('FH');
+  const tenureMatch = (p.tenure || '').match(/(\d+)/);
+  const tenureYears = isFH ? 999 : (tenureMatch ? parseInt(tenureMatch[1]) : 99);
+  const remainingLease = tenureYears === 999 ? 999 : tenureYears - ageYears;
+  const mrtDistanceM = parseMRTDistance(p.mrt);
+  const mrtBand = mrtDistanceM < 100 ? 5 : mrtDistanceM < 350 ? 4 : mrtDistanceM < 500 ? 3 : mrtDistanceM < 1000 ? 2 : 1;
+  const regionType = getRegionType(p.district);
+  const density = p.unitCount && p.landSizeHa ? p.unitCount / p.landSizeHa : null;
+  const leaseDecayScore = remainingLease >= 80 ? 5 : remainingLease >= 70 ? 4 : remainingLease >= 60 ? 3 : remainingLease >= 50 ? 2 : 1;
+
+  return { ageYears, tenureYears, remainingLease, mrtDistanceM, mrtBand, regionType, density, leaseDecayScore };
+}
+
+export function computeBadges(p = {}, derived = {}) {
+  return {
+    under1kmMRT: derived.mrtBand >= 2,
+    under10yrOld: derived.ageYears < 10,
+    nearMillionHDB: p.nearMillionHDB === true,
+    fiftyPlusDeals: (p.annualTransactions || 0) >= 50,
+    top20School: p.schoolTier === 1,
+    hdbMopOver1k: p.hdbTownMopOver1k === true,
+  };
+}
+
+export function computeMoatScores(p = {}, derived = {}) {
+  const scores = {
+    quantumAccessibility: (p.budgetMin && p.budgetMin < 1500000) ? 4 : 3,
+    leaseDecayRisk: derived.leaseDecayScore || 3,
+    mrtProximity: derived.mrtBand || 3,
+    schoolTierPremium: p.schoolTier ? (6 - p.schoolTier) : 2,
+    districtIncomeT: p.districtIncomeTier || 3,
+    regionClass: derived.regionType === 'CCR' ? 5 : derived.regionType === 'RCR' ? 4 : derived.regionType === 'OCR-fringe' ? 3 : 2,
+    siteDensity: derived.density ? (derived.density < 60 ? 5 : derived.density < 120 ? 4 : derived.density < 200 ? 3 : 2) : 3,
+    exitAudience: p.exitAudienceRating || 3,
+    rentalDemand: p.rentalDemandRating || 3,
+    volumeEffect: (p.annualTransactions || 0) > 120 ? 5 : (p.annualTransactions || 0) >= 60 ? 4 : (p.annualTransactions || 0) >= 30 ? 3 : (p.annualTransactions || 0) >= 10 ? 2 : 1,
+  };
+  const composite = Object.values(scores).reduce((a, b) => a + b, 0);
+  return { ...scores, composite };
+}
+
 export const fmt = {
   currency: (n) => n != null ? `$${Math.round(n).toLocaleString('en-SG')}` : '-',
   currencyK: (n) => n != null ? `$${Math.round(n/1000)}K` : '-',
