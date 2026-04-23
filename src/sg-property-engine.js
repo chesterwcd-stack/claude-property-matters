@@ -20,6 +20,24 @@ export const DEFAULTS = {
   legalFees: 3800, renoFurnishing: 20000, agentCommBuy: 0, agentCommSell: 0.01,
   occupancyRate: 0.90, avPctOfRent: 0.85, propTaxRateNROC: 0.11, propTaxRateOOC: 0.04,
   maintenanceMthly: 380, annualRentalGrowth: 0.02,
+  propTaxOOCTiers: [
+    { upTo: 8000,     rate: 0.00 },
+    { upTo: 30000,    rate: 0.04 },
+    { upTo: 40000,    rate: 0.05 },
+    { upTo: 55000,    rate: 0.06 },
+    { upTo: 70000,    rate: 0.07 },
+    { upTo: 100000,   rate: 0.08 },
+    { upTo: Infinity, rate: 0.10 },
+  ],
+  propTaxNROCTiers: [
+    { upTo: 30000,    rate: 0.12 },
+    { upTo: 45000,    rate: 0.20 },
+    { upTo: 60000,    rate: 0.28 },
+    { upTo: Infinity, rate: 0.36 },
+  ],
+  minCashPctFirst: 0.05,
+  minCashPctSecondPlus: 0.25,
+  vacancyDefaultPct: 0.10,
   bearCAGR: 0.02, baseCAGR: 0.04, bullCAGR: 0.06,
   targetIRR: 0.10, minHoldYears: 4, maxHoldYears: 6,
   cpfRates: {
@@ -162,6 +180,52 @@ export function calcEquityIRR({ upfrontCash, annualCarry, exitEquity, holdingYea
   }
   cashflows[cashflows.length - 1] += exitEquity;
   return solveIRR(cashflows);
+}
+
+// ────────────────────────────────────────────────────────────
+// SECTION 8.5: SCENARIO CASHFLOW ENGINE (Phase 5)
+// ────────────────────────────────────────────────────────────
+
+export function calcPropertyTax(annualValue, mode = 'OOC') {
+  if (!annualValue || annualValue <= 0) return 0;
+  const tiers = mode === 'NROC' ? DEFAULTS.propTaxNROCTiers : DEFAULTS.propTaxOOCTiers;
+  let prevLimit = 0, tax = 0;
+  for (const { upTo, rate } of tiers) {
+    const band = Math.max(0, Math.min(annualValue, upTo) - prevLimit);
+    tax += band * rate;
+    prevLimit = upTo;
+    if (annualValue <= upTo) break;
+  }
+  return Math.round(tax);
+}
+
+export function calcRentalNetCarry({ monthlyRent, vacancyPct = DEFAULTS.vacancyDefaultPct, agentFeeAnnual = 0, propertyTaxMonthly = 0, maintenanceMonthly = DEFAULTS.maintenanceMthly, mortgageMonthly = 0 }) {
+  const vacancyLoss = monthlyRent * vacancyPct;
+  const grossRent = monthlyRent - vacancyLoss;
+  const agentMonthly = agentFeeAnnual / 12;
+  const carryBeforeMortgage = grossRent - propertyTaxMonthly - maintenanceMonthly - agentMonthly;
+  const netCarry = carryBeforeMortgage - mortgageMonthly;
+  return { grossRent, vacancyLoss, agentMonthly, carryBeforeMortgage, netCarry };
+}
+
+export function calcDownPayment(price, { ltv = DEFAULTS.ltv1st, isFirstProperty = true } = {}) {
+  const bankLoan = Math.round(price * ltv);
+  const totalDown = price - bankLoan;
+  const minCashPct = isFirstProperty ? DEFAULTS.minCashPctFirst : DEFAULTS.minCashPctSecondPlus;
+  const minCash = Math.round(price * minCashPct);
+  const maxCPF = Math.max(0, totalDown - minCash);
+  return { bankLoan, totalDown, minCash, maxCPF };
+}
+
+export function calcJointABSD(price, { residencyA = 'SC', countA = 0, residencyB = 'SC', countB = 0, remissionEligible = false } = {}) {
+  const ratesA = DEFAULTS.absd[residencyA] || DEFAULTS.absd.SC;
+  const ratesB = DEFAULTS.absd[residencyB] || DEFAULTS.absd.SC;
+  const rateA = ratesA[Math.min(countA, 2)];
+  const rateB = ratesB[Math.min(countB, 2)];
+  const appliedRate = Math.max(rateA, rateB);
+  const grossABSD = Math.round(price * appliedRate);
+  const netABSD = remissionEligible ? 0 : grossABSD;
+  return { rateA, rateB, appliedRate, grossABSD, netABSD, remissionApplied: remissionEligible && grossABSD > 0, worstCaseBuyer: rateB >= rateA ? 'B' : 'A' };
 }
 
 // ────────────────────────────────────────────────────────────

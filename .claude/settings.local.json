@@ -8,7 +8,8 @@
       "Bash(grep -E \".{10,}\")",
       "Bash(python *)",
       "Bash(powershell *)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(curl -s http://localhost:3000)"
     ]
   }
 }

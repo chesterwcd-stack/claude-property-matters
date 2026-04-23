@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { DEFAULTS, calcBSD, calcABSD, calcMonthlyMortgage, calcRemainingLoan, solveIRR, fmt, calcSSD, calcCPFTotalRefund, calcNetProceeds, calcHoldPeriodSweep, calcRequiredExitPrice, calcExitPrice, calcExitEquity, deriveProjectMetrics, computeBadges, computeMoatScores } from "./sg-property-engine";
+import { DEFAULTS, calcBSD, calcABSD, calcMonthlyMortgage, calcRemainingLoan, solveIRR, fmt, calcSSD, calcCPFTotalRefund, calcNetProceeds, calcHoldPeriodSweep, calcRequiredExitPrice, calcExitPrice, calcExitEquity, deriveProjectMetrics, computeBadges, computeMoatScores, calcPropertyTax, calcRentalNetCarry, calcDownPayment, calcJointABSD, calcMSR } from "./sg-property-engine";
 
 // ════════════════════════════════════════════════════════════
 // PROJECT DATABASE (from Phase 3 master)
@@ -63,6 +63,10 @@ const DEFAULT_PROFILE = {
   name: "Sample Client", residency: "SC", age: 35, ageBracketA: "<=35",
   grossIncomeA: 10000, grossIncomeB: 0, additionalIncome: 4500, ageBracketB: "<=35",
   existingCommitments: 0,
+  residencyB: "SC", propertyCountA: 0, propertyCountB: 0,
+  existingCommitmentsA: 0, existingCommitmentsB: 0,
+  existingMortgageA: 0, existingMortgageB: 0,
+  absdRemissionEligible: false,
   cpfOA_A: 120000, cpfOA_B: 0, cashSavings: 200000, otherLiquid: 50000, giftSupport: 0,
   currentProperty: { owns: true, type: "HDB 4-Room", district: "D19 Sengkang", marketValue: 650000, outstandingMortgage: 180000, monthlyMortgage: 1200, originalPrice: 400000, yearPurchased: 2015 },
   goals: { primaryGoal: "Sell HDB → Buy Condo", riskTolerance: "Balanced", holdingHorizon: "4-6", purpose: "Own Stay + Investment", budgetCeiling: 1400000, carryTolerance: 2000, targetIRR: 0.10 },
@@ -160,6 +164,12 @@ function ProfileTab({ profile, setProfile }) {
         <InputRow label="Co-Borrower Income (B)" value={profile.grossIncomeB} onChange={v=>u("grossIncomeB",v)} comma note="0 if single buyer" />
         <InputRow label="Additional Income" value={profile.additionalIncome} onChange={v=>u("additionalIncome",v)} comma note="Excl. from TDSR" />
         <InputRow label="Existing Commitments" value={profile.existingCommitments} onChange={v=>u("existingCommitments",v)} comma note="Car/personal loans" />
+        <InputRow label="Residency (Co-Buyer B)" value={profile.residencyB} onChange={v=>u("residencyB",v)} options={["SC","PR","Foreigner"]} />
+        <InputRow label="Property Count — Buyer A" value={profile.propertyCountA} onChange={v=>u("propertyCountA",Number(v))} options={[{value:0,label:"1st Property"},{value:1,label:"2nd Property"},{value:2,label:"3rd+ Property"}]} />
+        <InputRow label="Property Count — Buyer B" value={profile.propertyCountB} onChange={v=>u("propertyCountB",Number(v))} options={[{value:0,label:"1st Property"},{value:1,label:"2nd Property"},{value:2,label:"3rd+ Property"}]} />
+        <InputRow label="Commitments — Buyer A" value={profile.existingCommitmentsA} onChange={v=>u("existingCommitmentsA",v)} comma note="Individual (for split scenarios)" />
+        <InputRow label="Commitments — Buyer B" value={profile.existingCommitmentsB} onChange={v=>u("existingCommitmentsB",v)} comma />
+        <InputRow label="ABSD Remission Eligible" value={profile.absdRemissionEligible?"Yes":"No"} onChange={v=>u("absdRemissionEligible",v==="Yes")} options={["Yes","No"]} />
         <div style={{ padding:"10px 0", borderTop:"1px solid #E8E8E8", marginTop:8, display:"flex", gap:20 }}>
           <Metric label="CPF OA Monthly" value={f$(cpfOAmonthly)} accent="#008000" />
           <Metric label="Net Household Income" value={f$(netTakeHome)} accent="#333" />
@@ -555,22 +565,50 @@ function DeepDiveTab({ profile }) {
   const [rentOverride, setRentOverride] = useState(null);
   const [maintenanceOverride, setMaintenanceOverride] = useState(null);
   const [exitPriceOverride, setExitPriceOverride] = useState(null);
-  const [propertyMode, setPropertyMode] = useState("1");
   const [investmentPropertyRate, setInvestmentPropertyRate] = useState(DEFAULTS.investmentRate);
-  const [currentPropertyRate, setCurrentPropertyRate] = useState(DEFAULTS.mortgageRate);
-  const [currentPropertyMortgage, setCurrentPropertyMortgage] = useState(null);
+
+  // Household Cash Position — scenario state
+  const [scenario, setScenario] = useState("S1");
+  const [purpose, setPurpose] = useState("investment");
+  const [propRate, setPropRate] = useState(DEFAULTS.investmentRate);
+  const [propTenure, setPropTenure] = useState(30);
+  const [ltvOverride, setLtvOverride] = useState(null);
+  const [expectedRent, setExpectedRent] = useState(null);
+  const [vacancyPct, setVacancyPct] = useState(0.10);
+  const [agentFeeAnnual, setAgentFeeAnnual] = useState(0);
+  const [ownStayAV, setOwnStayAV] = useState(null);
+  const [propARate, setPropARate] = useState(DEFAULTS.mortgageRate);
+  const [propATenure, setPropATenure] = useState(30);
+  const [propAPrice, setPropAPrice] = useState(null);
+  const [propBRate, setPropBRate] = useState(DEFAULTS.investmentRate);
+  const [propBTenure, setPropBTenure] = useState(30);
+  const [propARent, setPropARent] = useState(null);
+  const [propBRent, setPropBRent] = useState(null);
+  const [existingHDBMortgage, setExistingHDBMortgage] = useState(null);
+  const [remissionToggle, setRemissionToggle] = useState(false);
+  const [rentalInTDSR, setRentalInTDSR] = useState(false);
   const [cpfPrimaryAlloc, setCpfPrimaryAlloc] = useState(null);
   const [cpfSecondaryAlloc, setCpfSecondaryAlloc] = useState(0);
   const [monthlyExpensesOverride, setMonthlyExpensesOverride] = useState(null);
   const [propertyTaxOverride, setPropertyTaxOverride] = useState(null);
   const [maintenanceFeeOverride, setMaintenanceFeeOverride] = useState(null);
   const [utilitiesOverride, setUtilitiesOverride] = useState(null);
+
   const project = PROJECTS.find(p => p.id === selectedId) || PROJECTS[0];
   const mid = (project.budgetMin + project.budgetMax) / 2;
 
   useEffect(() => {
     setRentOverride(null); setMaintenanceOverride(null); setExitPriceOverride(null);
-    setPropertyMode("1"); setInvestmentPropertyRate(DEFAULTS.investmentRate); setCurrentPropertyMortgage(null);
+    setInvestmentPropertyRate(DEFAULTS.investmentRate);
+    setScenario("S1"); setPurpose("investment");
+    setPropRate(DEFAULTS.investmentRate); setPropTenure(30); setLtvOverride(null);
+    setExpectedRent(null); setVacancyPct(0.10); setAgentFeeAnnual(0); setOwnStayAV(null);
+    setPropARate(DEFAULTS.mortgageRate); setPropATenure(30); setPropAPrice(null);
+    setPropBRate(DEFAULTS.investmentRate); setPropBTenure(30);
+    setPropARent(null); setPropBRent(null);
+    setExistingHDBMortgage(null); setRemissionToggle(false); setRentalInTDSR(false);
+    setCpfPrimaryAlloc(null); setCpfSecondaryAlloc(0);
+    setMonthlyExpensesOverride(null); setPropertyTaxOverride(null); setMaintenanceFeeOverride(null); setUtilitiesOverride(null);
   }, [selectedId]);
 
   const analysis = useMemo(() => {
@@ -609,7 +647,7 @@ function DeepDiveTab({ profile }) {
     }
 
     return { price, bsd, absd, absdRate, legalFees, reno, downpayment, loan, upfront, mortgage: mortgageAtRate, mortgageAtStressTest, effectiveRent, effectiveMaintenance, adjRent, propTax, carry, grossYield, remLoan5, scenarios };
-  }, [selectedId, profile, mid, project, rentOverride, maintenanceOverride, investmentPropertyRate];
+  }, [selectedId, profile, mid, project, rentOverride, maintenanceOverride, investmentPropertyRate]);
 
   return <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
     {/* Project Selector */}
@@ -740,20 +778,510 @@ function DeepDiveTab({ profile }) {
     {/* Household Cash Position */}
     <Card style={{ padding:16 }}>
       <SectionHeader>Household Cash Position</SectionHeader>
-      <div style={{ display:"flex", gap:16, alignItems:"center", padding:"8px 0 12px", borderBottom:"1px solid #F0F0F0" }}>
-        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-          <span style={{ fontSize:10, color:"#666", fontFamily:fonts.mono, fontWeight:600 }}>MODE:</span>
-          <button onClick={() => setPropertyMode("1")} style={{ padding:"4px 10px", border:`1px solid ${propertyMode==="1"?"#0F4C81":"#D0D0D0"}`, borderRadius:4, background:propertyMode==="1"?"#0F4C81":"#fff", color:propertyMode==="1"?"#fff":"#333", fontSize:10, fontFamily:fonts.sans, cursor:"pointer", fontWeight:propertyMode==="1"?600:400 }}>1 Property</button>
-          <button onClick={() => setPropertyMode("2")} style={{ padding:"4px 10px", border:`1px solid ${propertyMode==="2"?"#0F4C81":"#D0D0D0"}`, borderRadius:4, background:propertyMode==="2"?"#0F4C81":"#fff", color:propertyMode==="2"?"#fff":"#333", fontSize:10, fontFamily:fonts.sans, cursor:"pointer", fontWeight:propertyMode==="2"?600:400 }}>Dual Property</button>
-        </div>
-        <span style={{ fontSize:10, color:"#999", fontFamily:fonts.sans, marginLeft:"auto" }}>Income shown as: Primary Only | Full Household (columns below)</span>
+
+      {/* Scenario selector */}
+      <div style={{ display:"flex", gap:8, alignItems:"flex-start", padding:"10px 0 12px", borderBottom:"1px solid #F0F0F0", flexWrap:"wrap" }}>
+        <span style={{ fontSize:10, color:"#666", fontFamily:fonts.mono, fontWeight:600, paddingTop:8 }}>SCENARIO:</span>
+        {[
+          { id:"S1", label:"Solo Buyer",           sub:"1 buyer · 1 property" },
+          { id:"S2", label:"Joint Purchase",        sub:"2 buyers · 1 property" },
+          { id:"S3", label:"Split: Own + Invest",   sub:"A own-stay · B invest" },
+          { id:"S4", label:"Split: Both Invest",    sub:"Both invest · existing HDB" },
+        ].map(s => (
+          <button key={s.id} onClick={()=>setScenario(s.id)} style={{
+            padding:"6px 12px", border:`1px solid ${scenario===s.id?"#0F4C81":"#D0D0D0"}`,
+            borderRadius:6, background:scenario===s.id?"#0F4C81":"#fff",
+            color:scenario===s.id?"#fff":"#555", fontSize:10, fontFamily:fonts.sans,
+            cursor:"pointer", textAlign:"left", minWidth:130, lineHeight:1.4
+          }}>
+            <div style={{ fontWeight:700 }}>{s.label}</div>
+            <div style={{ fontSize:9, opacity:0.7 }}>{s.sub}</div>
+          </button>
+        ))}
       </div>
 
-      {/* Inputs Section */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, padding:"12px 0", borderBottom:"1px solid #F0F0F0", marginBottom:12 }}>
-        {/* Col 1: Mortgage Rates */}
-        <div>
-          <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Mortgage Rates</div>
+      {/* Input panel — conditional by scenario */}
+      {(() => {
+        const inpLabel = (txt) => <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>{txt}</span>;
+        const inpNum = (val, onChange, w=70, step=0.01) => <input type="number" step={step} min="0" value={val} onChange={e=>onChange(Number(e.target.value))} style={{ width:w, padding:"3px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#1A73E8", textAlign:"right", background:"#F0F7FF" }} />;
+        const inpTxt = (val, onChange, w=85, color="#C62828") => <input type="text" value={val!==null&&val!==undefined?Number(val).toLocaleString("en-SG"):""} onChange={e=>onChange(Number(e.target.value.replace(/,/g,""))||0)} style={{ width:w, padding:"3px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color, textAlign:"right", background:"#F0F7FF" }} />;
+        const pillBtn = (active, onClick, label) => <button onClick={onClick} style={{ padding:"3px 8px", border:`1px solid ${active?"#0F4C81":"#D0D0D0"}`, borderRadius:4, background:active?"#E8F1FA":"#fff", color:active?"#0F4C81":"#555", fontSize:10, cursor:"pointer", fontWeight:active?700:400 }}>{label}</button>;
+        const inpRow = (label, el) => <div style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 0" }}>{inpLabel(label)}{el}</div>;
+        const subHdr = (txt) => <div style={{ fontSize:9, fontWeight:700, color:"#0F4C81", letterSpacing:0.5, marginTop:6, marginBottom:4, textTransform:"uppercase" }}>{txt}</div>;
+
+        return (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, padding:"12px 0", borderBottom:"1px solid #F0F0F0", marginBottom:12 }}>
+          {/* LEFT: Loan Structure */}
+          <div>
+            {subHdr("Loan Structure")}
+            {(scenario==="S1"||scenario==="S2") && <>
+              <div style={{ display:"flex", gap:6, marginBottom:6 }}>
+                {inpLabel("Purpose")}
+                {pillBtn(purpose==="own-stay",()=>setPurpose("own-stay"),"Own-Stay")}
+                {pillBtn(purpose==="investment",()=>setPurpose("investment"),"Investment")}
+              </div>
+              {inpRow("Rate (%)", <>{inpNum((propRate*100).toFixed(2), v=>setPropRate(v/100), 65)} <span style={{fontSize:10}}>%</span></>)}
+              {inpRow("Tenure (yrs)", <>{inpNum(propTenure, v=>setPropTenure(v), 55, 1)} <span style={{fontSize:10}}>yrs</span></>)}
+              {inpRow("LTV override (%)", <>{inpNum(ltvOverride!==null?(ltvOverride*100).toFixed(0):((profile.propertyCountA||0)===0?"75":"45"), v=>setLtvOverride(v/100), 55, 1)} <span style={{fontSize:10}}>%</span></>)}
+              {ltvOverride!==null&&<button onClick={()=>setLtvOverride(null)} style={{fontSize:9,color:"#C62828",background:"none",border:"none",cursor:"pointer",padding:0}}>Reset to default</button>}
+            </>}
+            {(scenario==="S3"||scenario==="S4") && <>
+              {subHdr(`Property A — Buyer A (${scenario==="S3"?"Own-Stay":"Investment"})`)}
+              {inpRow("Price (A) $", inpTxt(propAPrice, setPropAPrice, 95, "#0F4C81"))}
+              {inpRow("Rate (A) %", <>{inpNum((propARate*100).toFixed(2), v=>setPropARate(v/100), 60)} <span style={{fontSize:10}}>%</span></>)}
+              {inpRow("Tenure (A) yrs", <>{inpNum(propATenure, v=>setPropATenure(v), 50, 1)} <span style={{fontSize:10}}>yrs</span></>)}
+              {subHdr("Property B — Buyer B (Investment)")}
+              <div style={{ fontSize:9, color:"#888", marginBottom:4 }}>Price: {f$(analysis.price)} (selected project)</div>
+              {inpRow("Rate (B) %", <>{inpNum((propBRate*100).toFixed(2), v=>setPropBRate(v/100), 60)} <span style={{fontSize:10}}>%</span></>)}
+              {inpRow("Tenure (B) yrs", <>{inpNum(propBTenure, v=>setPropBTenure(v), 50, 1)} <span style={{fontSize:10}}>yrs</span></>)}
+            </>}
+          </div>
+
+          {/* RIGHT: Buyer Details + Expenses */}
+          <div>
+            {subHdr("Buyer & Property")}
+            <div style={{ fontSize:9, color:"#999", marginBottom:4 }}>Buyer A: {profile.residency} · {profile.propertyCountA===0?"1st":profile.propertyCountA===1?"2nd":"3rd+"} property</div>
+            {(scenario==="S2"||scenario==="S3"||scenario==="S4") && (
+              <div style={{ fontSize:9, color:"#999", marginBottom:4 }}>Buyer B: {profile.residencyB||"SC"} · {(profile.propertyCountB||0)===0?"1st":(profile.propertyCountB||0)===1?"2nd":"3rd+"} property <span style={{color:"#1A73E8"}}>(edit in Profile)</span></div>
+            )}
+            {scenario==="S2" && (
+              <div style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 0" }}>
+                {inpLabel("ABSD Remission")}
+                {pillBtn(remissionToggle,()=>setRemissionToggle(!remissionToggle),remissionToggle?"Eligible ✓":"Not Eligible")}
+              </div>
+            )}
+
+            {/* Rental inputs */}
+            {(scenario==="S1"||scenario==="S2") && purpose==="investment" && <>
+              {subHdr("Rental")}
+              {inpRow("Expected Rent $", inpTxt(expectedRent??project.rent, v=>setExpectedRent(v||null), 85, "#2E7D32"))}
+              {inpRow("Vacancy %", <>{inpNum((vacancyPct*100).toFixed(0), v=>setVacancyPct(v/100), 50, 1)} <span style={{fontSize:10}}>%</span></>)}
+            </>}
+            {(scenario==="S1"||scenario==="S2") && purpose==="own-stay" && <>
+              {subHdr("Property Tax")}
+              {inpRow("Annual Value (AV) $", inpTxt(ownStayAV??Math.round(project.rent*12*DEFAULTS.avPctOfRent), v=>setOwnStayAV(v||null), 90, "#E65100"))}
+              <div style={{ fontSize:9, color:"#999", paddingLeft:2 }}>OOC tax uses progressive tiers on AV</div>
+            </>}
+            {(scenario==="S3") && <>
+              {subHdr("Prop A — Own-Stay AV")}
+              {inpRow("Annual Value (AV) $", inpTxt(ownStayAV??Math.round(project.rent*12*DEFAULTS.avPctOfRent), v=>setOwnStayAV(v||null), 90, "#E65100"))}
+              {subHdr("Prop B — Rental")}
+              {inpRow("Rent (B) $", inpTxt(propBRent??project.rent, v=>setPropBRent(v||null), 85, "#2E7D32"))}
+              {inpRow("Vacancy %", <>{inpNum((vacancyPct*100).toFixed(0), v=>setVacancyPct(v/100), 50, 1)} <span style={{fontSize:10}}>%</span></>)}
+            </>}
+            {(scenario==="S4") && <>
+              {subHdr("Prop A — Rental")}
+              {inpRow("Rent (A) $", inpTxt(propARent??project.rent, v=>setPropARent(v||null), 85, "#2E7D32"))}
+              {subHdr("Prop B — Rental")}
+              {inpRow("Rent (B) $", inpTxt(propBRent??project.rent, v=>setPropBRent(v||null), 85, "#2E7D32"))}
+              {inpRow("Vacancy %", <>{inpNum((vacancyPct*100).toFixed(0), v=>setVacancyPct(v/100), 50, 1)} <span style={{fontSize:10}}>%</span></>)}
+              {subHdr("Existing Home")}
+              {inpRow("HDB Mortgage $/mo", inpTxt(existingHDBMortgage??(profile.currentProperty?.monthlyMortgage||0), v=>setExistingHDBMortgage(v||null), 85, "#C62828"))}
+            </>}
+
+            {/* CPF & Expenses */}
+            {subHdr("CPF to Mortgage")}
+            {inpRow("Primary CPF (A) $", inpTxt(cpfPrimaryAlloc??Math.round(profile.grossIncomeA*(DEFAULTS.cpfRates[profile.ageBracketA]?.total||0.37)*(DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio||0.62)), v=>setCpfPrimaryAlloc(v||null), 85, "#2E7D32"))}
+            {profile.grossIncomeB>0 && inpRow("Co-Buyer CPF (B) $", inpTxt(cpfSecondaryAlloc, v=>setCpfSecondaryAlloc(v), 85, "#2E7D32"))}
+
+            {(purpose==="investment"||scenario==="S3"||scenario==="S4") && (
+              <div style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 0" }}>
+                {inpLabel("70% Rental in TDSR")}
+                {pillBtn(rentalInTDSR,()=>setRentalInTDSR(!rentalInTDSR),rentalInTDSR?"ON (MAS 70%)":"OFF (Conservative)")}
+              </div>
+            )}
+
+            {subHdr("Living Expenses")}
+            {inpRow("Monthly Living $", inpTxt(monthlyExpensesOverride??profile.monthlyExpenses, v=>setMonthlyExpensesOverride(v||null)))}
+            {inpRow("Maintenance $", inpTxt(maintenanceFeeOverride??profile.maintenance, v=>setMaintenanceFeeOverride(v||null)))}
+            {inpRow("Utilities $", inpTxt(utilitiesOverride??profile.utilities, v=>setUtilitiesOverride(v||null)))}
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Waterfall calculation — 4 scenarios */}
+      {(() => {
+        // Shared calcs
+        const commitmentsA = (profile.existingCommitmentsA||0) || (profile.existingCommitments||0);
+        const commitmentsB = profile.existingCommitmentsB || 0;
+        const grossA = profile.grossIncomeA || 0;
+        const grossB = profile.grossIncomeB || 0;
+        const cpfRA = DEFAULTS.cpfRates[profile.ageBracketA] || DEFAULTS.cpfRates['<=35'];
+        const cpfRB = DEFAULTS.cpfRates[profile.ageBracketB] || DEFAULTS.cpfRates['<=35'];
+        const takeHomeA = grossA * (1 - cpfRA.employee);
+        const takeHomeB = grossB * (1 - cpfRB.employee);
+        const cpfOAA = cpfPrimaryAlloc !== null ? cpfPrimaryAlloc : Math.round(grossA * cpfRA.total * cpfRA.oaRatio);
+        const cpfOAB = cpfSecondaryAlloc || 0;
+        const monthlyExp = monthlyExpensesOverride !== null ? monthlyExpensesOverride : profile.monthlyExpenses;
+        const mainFee = maintenanceFeeOverride !== null ? maintenanceFeeOverride : profile.maintenance;
+        const utils = utilitiesOverride !== null ? utilitiesOverride : profile.utilities;
+
+        // Shared UI helpers
+        const Row = ({ label, value, indent=false, tone="neutral", bold=false, separator=false, sub=null }) => (
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:separator?"8px 0 4px":"3px 0", borderTop:separator?"2px solid #0F4C81":undefined, marginTop:separator?4:0, fontSize:bold?12:10.5, fontWeight:bold?700:500, color:bold?(tone==="positive"?"#2E7D32":tone==="negative"?"#C62828":"#1A1A2E"):(tone==="positive"?"#2E7D32":tone==="negative"?"#C62828":tone==="muted"?"#AAA":"#555") }}>
+            <span style={{ paddingLeft:indent?10:0, display:"flex", alignItems:"center", gap:4 }}>{label}{sub&&<span style={{fontSize:9,color:"#AAA",fontWeight:400}}>{sub}</span>}</span>
+            <span style={{ fontFamily:fonts.mono, fontWeight:bold?700:600 }}>{value}</span>
+          </div>
+        );
+        const TRow = ({ label, ratio }) => (
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"2px 0", fontSize:10, color:"#666" }}>
+            <span>{label}</span>
+            <span style={{ fontWeight:700, fontFamily:fonts.mono, color:ratio<=0.55?"#2E7D32":"#C62828" }}>{fPct(ratio)} {ratio<=0.55?"✓":"✗"}</span>
+          </div>
+        );
+        const Div = () => <div style={{ borderBottom:"1px solid #F0F0F0", margin:"4px 0" }} />;
+        const BufferRows = ({ rem }) => rem < 0 ? (<>
+          <Row label="1-Year Buffer Needed" value={f$(Math.abs(rem)*12)} tone="negative" />
+          <Row label="2-Year Buffer Needed" value={f$(Math.abs(rem)*24)} tone="negative" />
+        </>) : null;
+        const DownPayStrip = ({ bankLoan, totalDown, minCash, maxCPF, absdAmt, ltv }) => (
+          <div style={{ display:"flex", gap:20, padding:"8px 0 10px", borderBottom:"1px solid #F0F0F0", fontSize:10.5, flexWrap:"wrap" }}>
+            <span style={{color:"#555"}}>Loan <strong style={{fontFamily:fonts.mono}}>{f$(bankLoan)}</strong> <span style={{color:"#888"}}>({(ltv*100).toFixed(0)}% LTV)</span></span>
+            <span style={{color:"#555"}}>Down Pmt <strong style={{fontFamily:fonts.mono}}>{f$(totalDown)}</strong></span>
+            <span style={{color:"#C62828"}}>Min Cash <strong style={{fontFamily:fonts.mono}}>{f$(minCash)}</strong></span>
+            <span style={{color:"#2E7D32"}}>Max CPF <strong style={{fontFamily:fonts.mono}}>{f$(maxCPF)}</strong></span>
+            {absdAmt>0 && <span style={{color:"#E65100"}}>ABSD <strong style={{fontFamily:fonts.mono}}>{f$(absdAmt)}</strong></span>}
+            {absdAmt===0 && <span style={{color:"#2E7D32"}}>ABSD <strong style={{fontFamily:fonts.mono}}>$0</strong></span>}
+          </div>
+        );
+
+        // ── S1: Solo Buyer ──────────────────────────────────────
+        if (scenario === "S1") {
+          const ltv = ltvOverride ?? ((profile.propertyCountA||0)===0 ? 0.75 : 0.45);
+          const price = analysis.price;
+          const loan = price * ltv;
+          const mtg = calcMonthlyMortgage(loan, propRate, propTenure);
+          const mtgStress = calcMonthlyMortgage(loan, DEFAULTS.stressTestRate, propTenure);
+          const cpfOff = Math.min(cpfOAA, mtg);
+          const cashMtg = Math.max(0, mtg - cpfOff);
+          const absdAmt = calcABSD(price, profile.residency, profile.propertyCountA||0);
+          const dp = calcDownPayment(price, { ltv, isFirstProperty: (profile.propertyCountA||0)===0 });
+
+          let propTaxMo = 0;
+          if (propertyTaxOverride !== null) { propTaxMo = propertyTaxOverride; }
+          else if (purpose === "investment") {
+            const rent = expectedRent !== null ? expectedRent : project.rent;
+            propTaxMo = Math.round(calcPropertyTax(rent * 12 * DEFAULTS.avPctOfRent, 'NROC') / 12);
+          } else {
+            const av = ownStayAV !== null ? ownStayAV : Math.round(project.rent * 12 * DEFAULTS.avPctOfRent);
+            propTaxMo = Math.round(calcPropertyTax(av, 'OOC') / 12);
+          }
+
+          let rental = null;
+          if (purpose === "investment") {
+            const rent = expectedRent !== null ? expectedRent : project.rent;
+            rental = calcRentalNetCarry({ monthlyRent: rent, vacancyPct, agentFeeAnnual, propertyTaxMonthly: propTaxMo, maintenanceMonthly: mainFee, mortgageMonthly: 0 });
+          }
+
+          const rentalForTdsr = rentalInTDSR && rental ? rental.grossRent * 0.70 : 0;
+          const grossForTdsr = grossA + rentalForTdsr;
+          const tdsrActual = grossForTdsr > 0 ? (mtg + commitmentsA) / grossForTdsr : 1;
+          const tdsrStress = grossForTdsr > 0 ? (mtgStress + commitmentsA) / grossForTdsr : 1;
+
+          const totalExp = monthlyExp + propTaxMo + mainFee + utils + commitmentsA;
+          const netRem = takeHomeA - cashMtg - totalExp;
+          const netCarry = rental ? netRem + rental.grossRent : netRem;
+
+          return (
+            <div>
+              <DownPayStrip {...dp} absdAmt={absdAmt} ltv={ltv} />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginTop:10 }}>
+                {/* Col 1: Cashflow position */}
+                <div style={{ borderRight:"1px solid #E0E0E0", paddingRight:16 }}>
+                  <div style={{ fontSize:9, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>Buyer A — Monthly Position</div>
+                  <Row label="Gross Monthly" value={f$(grossA)} />
+                  <Row label={`CPF Deduction (${(cpfRA.employee*100).toFixed(0)}%)`} value={`-${f$(grossA*cpfRA.employee)}`} tone="muted" indent />
+                  <Row label="Net Take-Home" value={f$(takeHomeA)} bold /><Div/>
+                  <Row label={`Mortgage @ ${(propRate*100).toFixed(2)}%`} value={`(${f$(mtg)})`} tone="negative" />
+                  <Row label="Stress test @ 4%" value={`(${f$(mtgStress)})`} tone="muted" indent sub="advisory" />
+                  <Row label="CPF to Mortgage" value={`+${f$(cpfOff)}`} tone="positive" indent />
+                  <Row label="Cash Mortgage Outlay" value={`(${f$(cashMtg)})`} tone="negative" bold /><Div/>
+                  <TRow label="TDSR (actual)" ratio={tdsrActual} />
+                  <TRow label="TDSR (stress @ 4%)" ratio={tdsrStress} />
+                  {project.type.includes("HDB") || project.type.includes("EC") ? <TRow label="MSR" ratio={mtg/(grossA||1)} /> : null}
+                  <Div/>
+                  <Row label="Monthly Living" value={`(${f$(monthlyExp)})`} tone="negative" />
+                  <Row label={`Prop Tax (${purpose==="investment"?"NROC":"OOC"})`} value={`(${f$(propTaxMo)})`} tone="negative" indent />
+                  <Row label="Maintenance" value={`(${f$(mainFee)})`} tone="negative" indent />
+                  <Row label="Utilities" value={`(${f$(utils)})`} tone="negative" indent />
+                  {commitmentsA > 0 && <Row label="Existing Commitments" value={`(${f$(commitmentsA)})`} tone="negative" indent />}
+                  <Row label="NET REMAINING" value={fCarry(netRem)} bold tone={netRem>=0?"positive":"negative"} separator />
+                  <BufferRows rem={netRem} />
+                </div>
+                {/* Col 2: With rental / Stress scenario */}
+                <div>
+                  {purpose==="investment" && rental ? (
+                    <>
+                      <div style={{ fontSize:9, fontWeight:700, color:"#2E7D32", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>With Rental Income</div>
+                      <Row label="Net Remaining (left)" value={fCarry(netRem)} tone={netRem>=0?"positive":"negative"} />
+                      <Row label={`+ Gross Rent (${((1-vacancyPct)*100).toFixed(0)}% occ.)`} value={`+${f$(rental.grossRent)}`} tone="positive" /><Div/>
+                      <Row label="Gross Yield" value={fPct((rental.grossRent*12)/analysis.price)} tone="positive" />
+                      {rentalInTDSR && <Row label={`70% rental in TDSR (+${f$(rentalForTdsr)}/mo)`} value="" tone="muted" />}
+                      <Row label="NET CARRY (incl. rental)" value={fCarry(netCarry)} bold tone={netCarry>=0?"positive":"negative"} separator />
+                      <BufferRows rem={netCarry} />
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize:9, fontWeight:700, color:"#555", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>MAS Stress Scenario (4%)</div>
+                      <Row label="Net Take-Home" value={f$(takeHomeA)} bold />
+                      <Row label="Mortgage @ 4% stress" value={`(${f$(mtgStress)})`} tone="negative" />
+                      <Row label="CPF Offset" value={`+${f$(cpfOff)}`} tone="positive" indent />
+                      <Row label="Cash Outlay (stress)" value={`(${f$(Math.max(0,mtgStress-cpfOff))})`} tone="negative" bold /><Div/>
+                      <Row label="Expenses" value={`(${f$(totalExp)})`} tone="negative" />
+                      {(() => { const sr = takeHomeA - Math.max(0,mtgStress-cpfOff) - totalExp; return (<><Row label="NET REMAINING (STRESS)" value={fCarry(sr)} bold tone={sr>=0?"positive":"negative"} separator /><BufferRows rem={sr} /></>); })()}
+                      <div style={{ marginTop:8, padding:"8px 10px", background:"#FFF8E1", borderRadius:4, fontSize:9.5, color:"#795548" }}>
+                        AV {f$(ownStayAV??Math.round(project.rent*12*DEFAULTS.avPctOfRent))}/yr → OOC tax {f$(propTaxMo)}/mo
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // ── S2: Joint Purchase ──────────────────────────────────
+        if (scenario === "S2") {
+          const cntA = profile.propertyCountA||0, cntB = profile.propertyCountB||0;
+          const ltv = ltvOverride ?? (cntA>0||cntB>0 ? 0.45 : 0.75);
+          const price = analysis.price;
+          const loan = price * ltv;
+          const mtg = calcMonthlyMortgage(loan, propRate, propTenure);
+          const mtgStress = calcMonthlyMortgage(loan, DEFAULTS.stressTestRate, propTenure);
+          const cpfOff = Math.min(cpfOAA+cpfOAB, mtg);
+          const cashMtg = Math.max(0, mtg - cpfOff);
+          const jointAbsd = calcJointABSD(price, { residencyA:profile.residency, countA:cntA, residencyB:profile.residencyB||"SC", countB:cntB, remissionEligible:remissionToggle });
+          const dp = calcDownPayment(price, { ltv, isFirstProperty: cntA===0&&cntB===0 });
+
+          const grossComb = grossA + grossB;
+          const wA = grossComb > 0 ? grossA / grossComb : 1;
+          const tdsrA = grossA > 0 ? (mtg*wA + commitmentsA) / grossA : 1;
+          const tdsrB = grossB > 0 ? (mtg*(1-wA) + commitmentsB) / grossB : null;
+          const tdsrComb = grossComb > 0 ? (mtg + commitmentsA + commitmentsB) / grossComb : 1;
+          const tdsrCombStress = grossComb > 0 ? (mtgStress + commitmentsA + commitmentsB) / grossComb : 1;
+
+          let propTaxMo = 0;
+          if (propertyTaxOverride !== null) { propTaxMo = propertyTaxOverride; }
+          else if (purpose === "investment") {
+            const rent = expectedRent !== null ? expectedRent : project.rent;
+            propTaxMo = Math.round(calcPropertyTax(rent * 12 * DEFAULTS.avPctOfRent, 'NROC') / 12);
+          } else {
+            const av = ownStayAV !== null ? ownStayAV : Math.round(project.rent * 12 * DEFAULTS.avPctOfRent);
+            propTaxMo = Math.round(calcPropertyTax(av, 'OOC') / 12);
+          }
+
+          let rental = null;
+          if (purpose === "investment") {
+            const rent = expectedRent !== null ? expectedRent : project.rent;
+            rental = calcRentalNetCarry({ monthlyRent: rent, vacancyPct, agentFeeAnnual, propertyTaxMonthly: propTaxMo, maintenanceMonthly: mainFee, mortgageMonthly: 0 });
+          }
+
+          const hhTakeHome = takeHomeA + takeHomeB;
+          const totalExp = monthlyExp + propTaxMo + mainFee + utils + commitmentsA + commitmentsB;
+          const hhRem = hhTakeHome - cashMtg - totalExp;
+          const netCarry = rental ? hhRem + rental.grossRent : hhRem;
+
+          return (
+            <div>
+              <DownPayStrip {...dp} absdAmt={jointAbsd.grossABSD} ltv={ltv} />
+              {jointAbsd.grossABSD > 0 && (
+                <div style={{ padding:"4px 0 8px", fontSize:10, color:"#555" }}>
+                  ABSD: worst-case rate {(jointAbsd.appliedRate*100).toFixed(0)}% (Buyer {jointAbsd.worstCaseBuyer} drives this)
+                  {remissionToggle && <span style={{color:"#2E7D32",marginLeft:8}}>→ Remission eligible: refund {f$(jointAbsd.grossABSD)} after selling 1st property (~6 mo)</span>}
+                </div>
+              )}
+
+              {/* Per-buyer TDSR advisory strip */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, padding:"6px 0 10px", borderBottom:"1px solid #F0F0F0", marginBottom:10 }}>
+                <div>
+                  <div style={{ fontSize:9, fontWeight:700, color:"#555", letterSpacing:1, marginBottom:4, textTransform:"uppercase" }}>Buyer A TDSR (advisory, {(wA*100).toFixed(0)}% mortgage share)</div>
+                  <TRow label="TDSR A (actual)" ratio={tdsrA} />
+                </div>
+                <div>
+                  <div style={{ fontSize:9, fontWeight:700, color:"#555", letterSpacing:1, marginBottom:4, textTransform:"uppercase" }}>Buyer B TDSR (advisory, {((1-wA)*100).toFixed(0)}% mortgage share)</div>
+                  {tdsrB!==null ? <TRow label="TDSR B (actual)" ratio={tdsrB} /> : <div style={{fontSize:9,color:"#AAA"}}>No co-buyer income entered</div>}
+                </div>
+              </div>
+
+              {/* Combined household waterfall */}
+              <div style={{ fontSize:9, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>Combined Household — Binding MAS Test</div>
+              <Row label="Gross Monthly (A+B)" value={f$(grossComb)} />
+              <Row label="CPF Deductions (both)" value={`-${f$(grossA*cpfRA.employee+grossB*cpfRB.employee)}`} tone="muted" indent />
+              <Row label="Household Net Take-Home" value={f$(hhTakeHome)} bold /><Div/>
+              <Row label={`Mortgage @ ${(propRate*100).toFixed(2)}%`} value={`(${f$(mtg)})`} tone="negative" />
+              <Row label="Stress test @ 4%" value={`(${f$(mtgStress)})`} tone="muted" indent sub="advisory" />
+              <Row label="CPF Offsets (A+B)" value={`+${f$(cpfOff)}`} tone="positive" indent />
+              <Row label="Cash Mortgage Outlay" value={`(${f$(cashMtg)})`} tone="negative" bold /><Div/>
+              <TRow label="TDSR Combined (actual) — MAS binding" ratio={tdsrComb} />
+              <TRow label="TDSR Combined (stress @ 4%)" ratio={tdsrCombStress} /><Div/>
+              <Row label="Monthly Living" value={`(${f$(monthlyExp)})`} tone="negative" />
+              <Row label={`Prop Tax (${purpose==="investment"?"NROC":"OOC"})`} value={`(${f$(propTaxMo)})`} tone="negative" indent />
+              <Row label="Maintenance" value={`(${f$(mainFee)})`} tone="negative" indent />
+              <Row label="Utilities" value={`(${f$(utils)})`} tone="negative" indent />
+              {(commitmentsA+commitmentsB)>0 && <Row label="Commitments (A+B)" value={`(${f$(commitmentsA+commitmentsB)})`} tone="negative" indent />}
+              <Row label="HOUSEHOLD NET REMAINING" value={fCarry(hhRem)} bold tone={hhRem>=0?"positive":"negative"} separator />
+              {purpose==="investment"&&rental&&(
+                <>
+                  <Row label={`+ Gross Rent (${((1-vacancyPct)*100).toFixed(0)}% occ.)`} value={`+${f$(rental.grossRent)}`} tone="positive" />
+                  <Row label="Gross Yield" value={fPct((rental.grossRent*12)/price)} tone="positive" indent />
+                  <Row label="NET CARRY (incl. rental)" value={fCarry(netCarry)} bold tone={netCarry>=0?"positive":"negative"} separator />
+                </>
+              )}
+              <BufferRows rem={purpose==="investment"&&rental ? netCarry : hhRem} />
+            </div>
+          );
+        }
+
+        // ── S3 / S4: Split ownership ────────────────────────────
+        const isS4 = scenario === "S4";
+        const cntA_s = profile.propertyCountA||0, cntB_s = profile.propertyCountB||0;
+        const ltvA = cntA_s > 0 ? 0.45 : 0.75;
+        const ltvB = cntB_s > 0 ? 0.45 : 0.75;
+        const priceA = propAPrice || 0;
+        const priceB = analysis.price;
+        const loanA = priceA * ltvA;
+        const loanB = priceB * ltvB;
+        const mtgA = calcMonthlyMortgage(loanA, propARate, propATenure);
+        const mtgB = calcMonthlyMortgage(loanB, propBRate, propBTenure);
+        const mtgAStress = calcMonthlyMortgage(loanA, DEFAULTS.stressTestRate, propATenure);
+        const mtgBStress = calcMonthlyMortgage(loanB, DEFAULTS.stressTestRate, propBTenure);
+        const cpfOffA = Math.min(cpfOAA, mtgA);
+        const cpfOffB = Math.min(cpfOAB, mtgB);
+        const cashMtgA = Math.max(0, mtgA - cpfOffA);
+        const cashMtgB = Math.max(0, mtgB - cpfOffB);
+
+        const rentBval = propBRent !== null ? propBRent : project.rent;
+        const rentAval = propARent !== null ? propARent : project.rent;
+
+        let propTaxAMo = 0, propTaxBMo = 0;
+        if (isS4) {
+          propTaxAMo = Math.round(calcPropertyTax(rentAval * 12 * DEFAULTS.avPctOfRent, 'NROC') / 12);
+        } else {
+          const avA = ownStayAV !== null ? ownStayAV : Math.round(project.rent * 12 * DEFAULTS.avPctOfRent);
+          propTaxAMo = Math.round(calcPropertyTax(avA, 'OOC') / 12);
+        }
+        propTaxBMo = Math.round(calcPropertyTax(rentBval * 12 * DEFAULTS.avPctOfRent, 'NROC') / 12);
+
+        const rentalB = calcRentalNetCarry({ monthlyRent: rentBval, vacancyPct, agentFeeAnnual, propertyTaxMonthly: propTaxBMo, maintenanceMonthly: mainFee, mortgageMonthly: 0 });
+        const rentalA = isS4 ? calcRentalNetCarry({ monthlyRent: rentAval, vacancyPct, agentFeeAnnual, propertyTaxMonthly: propTaxAMo, maintenanceMonthly: mainFee, mortgageMonthly: 0 }) : null;
+
+        const rentalTdsrA = rentalInTDSR && isS4 && rentalA ? rentalA.grossRent * 0.70 : 0;
+        const rentalTdsrB = rentalInTDSR ? rentalB.grossRent * 0.70 : 0;
+        const tdsrA_g = (grossA + rentalTdsrA) > 0 ? (mtgA + commitmentsA) / (grossA + rentalTdsrA) : 1;
+        const tdsrB_g = grossB > 0 ? (mtgB + commitmentsB) / (grossB + rentalTdsrB) : null;
+        const tdsrAStr = (grossA + rentalTdsrA) > 0 ? (mtgAStress + commitmentsA) / (grossA + rentalTdsrA) : 1;
+        const tdsrBStr = grossB > 0 ? (mtgBStress + commitmentsB) / (grossB + rentalTdsrB) : null;
+
+        const hdbMtg = isS4 ? (existingHDBMortgage !== null ? existingHDBMortgage : (profile.currentProperty?.monthlyMortgage||0)) : 0;
+        const combinedTH = takeHomeA + takeHomeB;
+        const combinedCashMtg = cashMtgA + cashMtgB;
+        const combinedRental = (isS4&&rentalA?rentalA.grossRent:0) + rentalB.grossRent;
+        const combinedPropTax = propTaxAMo + propTaxBMo;
+        const combinedMaint = mainFee * (isS4 ? 2 : 1);
+        const combinedExp = monthlyExp + utils + combinedPropTax + combinedMaint + commitmentsA + commitmentsB;
+        const combinedRem = combinedTH - combinedCashMtg - combinedExp - hdbMtg + combinedRental;
+
+        const absdA = priceA > 0 ? calcABSD(priceA, profile.residency, cntA_s) : 0;
+        const absdB = calcABSD(priceB, profile.residencyB||"SC", cntB_s);
+        const dpA = priceA > 0 ? calcDownPayment(priceA, { ltv: ltvA, isFirstProperty: cntA_s===0 }) : null;
+        const dpB = calcDownPayment(priceB, { ltv: ltvB, isFirstProperty: cntB_s===0 });
+
+        return (
+          <div>
+            {/* ABSD / funding info */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, padding:"6px 0 10px", borderBottom:"1px solid #F0F0F0", marginBottom:10, fontSize:10.5 }}>
+              <div>
+                <div style={{ fontWeight:700, color:"#0F4C81", marginBottom:2 }}>Prop A — Buyer A ({isS4?"Invest":"Own-Stay"})</div>
+                {priceA > 0 ? <>
+                  <div>Loan {f$(dpA.bankLoan)} ({(ltvA*100).toFixed(0)}% LTV)</div>
+                  <div>Min Cash <strong>{f$(dpA.minCash)}</strong> · Max CPF <strong>{f$(dpA.maxCPF)}</strong></div>
+                  {absdA > 0 && <div style={{color:"#E65100"}}>ABSD {f$(absdA)}</div>}
+                  {absdA === 0 && <div style={{color:"#2E7D32"}}>ABSD $0</div>}
+                </> : <div style={{color:"#C62828"}}>↑ Enter Property A price in inputs above</div>}
+              </div>
+              <div>
+                <div style={{ fontWeight:700, color:"#2E7D32", marginBottom:2 }}>Prop B — Buyer B (Invest)</div>
+                <div>Loan {f$(dpB.bankLoan)} ({(ltvB*100).toFixed(0)}% LTV)</div>
+                <div>Min Cash <strong>{f$(dpB.minCash)}</strong> · Max CPF <strong>{f$(dpB.maxCPF)}</strong></div>
+                {absdB > 0 ? <div style={{color:"#E65100"}}>ABSD {f$(absdB)}</div> : <div style={{color:"#2E7D32"}}>ABSD $0</div>}
+              </div>
+            </div>
+
+            {/* Side-by-side property columns */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              {/* Prop A */}
+              <div style={{ padding:12, background:"#F8FBFF", borderRadius:6, border:"1px solid #D0E4F5" }}>
+                <div style={{ fontSize:9, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>Property A — Buyer A ({isS4?"Investment":"Own-Stay"})</div>
+                <Row label="Gross (A)" value={f$(grossA)} />
+                <Row label={`CPF (${(cpfRA.employee*100).toFixed(0)}%)`} value={`-${f$(grossA*cpfRA.employee)}`} tone="muted" indent />
+                <Row label="Net Take-Home" value={f$(takeHomeA)} bold /><Div/>
+                {priceA > 0 ? <>
+                  <Row label={`Mtg @ ${(propARate*100).toFixed(2)}%`} value={`(${f$(mtgA)})`} tone="negative" />
+                  <Row label="CPF Offset (A)" value={`+${f$(cpfOffA)}`} tone="positive" indent />
+                  <Row label="Cash Outlay (A)" value={`(${f$(cashMtgA)})`} tone="negative" bold /><Div/>
+                  <TRow label="TDSR A (actual)" ratio={tdsrA_g} />
+                  <TRow label="TDSR A (stress)" ratio={tdsrAStr} />
+                </> : <div style={{fontSize:10,color:"#AAA",padding:"4px 0"}}>Enter Property A price to see mortgage</div>}
+                <Div/>
+                <Row label={`Prop Tax (${isS4?"NROC":"OOC"})`} value={`(${f$(propTaxAMo)})`} tone="negative" />
+                {commitmentsA > 0 && <Row label="Commitments (A)" value={`(${f$(commitmentsA)})`} tone="negative" />}
+                {isS4 && rentalA && <>
+                  <Div/>
+                  <Row label={`Rent A (${((1-vacancyPct)*100).toFixed(0)}% occ.)`} value={`+${f$(rentalA.grossRent)}`} tone="positive" />
+                  <Row label="Gross Yield A" value={fPct((rentalA.grossRent*12)/priceA)} tone="positive" indent />
+                </>}
+              </div>
+
+              {/* Prop B */}
+              <div style={{ padding:12, background:"#F0FFF4", borderRadius:6, border:"1px solid #A5D6A7" }}>
+                <div style={{ fontSize:9, fontWeight:700, color:"#2E7D32", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>Property B — Buyer B (Investment)</div>
+                {grossB > 0 ? <>
+                  <Row label="Gross (B)" value={f$(grossB)} />
+                  <Row label={`CPF (${(cpfRB.employee*100).toFixed(0)}%)`} value={`-${f$(grossB*cpfRB.employee)}`} tone="muted" indent />
+                  <Row label="Net Take-Home" value={f$(takeHomeB)} bold /><Div/>
+                </> : <div style={{fontSize:9,color:"#AAA",marginBottom:6}}>No co-buyer income — edit Profile tab</div>}
+                <Row label={`Mtg @ ${(propBRate*100).toFixed(2)}%`} value={`(${f$(mtgB)})`} tone="negative" />
+                <Row label="CPF Offset (B)" value={`+${f$(cpfOffB)}`} tone="positive" indent />
+                <Row label="Cash Outlay (B)" value={`(${f$(cashMtgB)})`} tone="negative" bold /><Div/>
+                {tdsrB_g !== null ? <>
+                  <TRow label="TDSR B (actual)" ratio={tdsrB_g} />
+                  <TRow label="TDSR B (stress)" ratio={tdsrBStr} />
+                </> : <div style={{fontSize:9,color:"#AAA"}}>TDSR: enter co-buyer income in Profile</div>}
+                <Div/>
+                <Row label="Prop Tax (NROC)" value={`(${f$(propTaxBMo)})`} tone="negative" />
+                {commitmentsB > 0 && <Row label="Commitments (B)" value={`(${f$(commitmentsB)})`} tone="negative" />}
+                <Div/>
+                <Row label={`Rent B (${((1-vacancyPct)*100).toFixed(0)}% occ.)`} value={`+${f$(rentalB.grossRent)}`} tone="positive" />
+                <Row label="Gross Yield B" value={fPct((rentalB.grossRent*12)/priceB)} tone="positive" indent />
+              </div>
+            </div>
+
+            {/* Combined household footer */}
+            <div style={{ marginTop:12, padding:12, background:"#FAFAFA", borderRadius:6, border:"1px solid #E0E0E0" }}>
+              <div style={{ fontSize:9, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Combined Household Cashflow</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+                <div>
+                  <Row label="Household Take-Home" value={f$(combinedTH)} bold />
+                  <Row label="Cash Mortgage (A+B)" value={`(${f$(combinedCashMtg)})`} tone="negative" />
+                  {isS4 && hdbMtg > 0 && <Row label="Existing HDB Mortgage" value={`(${f$(hdbMtg)})`} tone="negative" />}
+                  <Row label="Combined Rental Income" value={`+${f$(combinedRental)}`} tone="positive" />
+                </div>
+                <div>
+                  <Row label="Monthly Living + Utilities" value={`(${f$(monthlyExp+utils)})`} tone="negative" />
+                  <Row label="Property Tax (A+B)" value={`(${f$(combinedPropTax)})`} tone="negative" />
+                  <Row label={`Maintenance (${isS4?"×2":"×1"})`} value={`(${f$(combinedMaint)})`} tone="negative" />
+                  {(commitmentsA+commitmentsB)>0 && <Row label="Commitments (A+B)" value={`(${f$(commitmentsA+commitmentsB)})`} tone="negative" />}
+                </div>
+              </div>
+              <Row label="NET HOUSEHOLD CARRY" value={fCarry(combinedRem)} bold tone={combinedRem>=0?"positive":"negative"} separator />
+              <BufferRows rem={combinedRem} />
+            </div>
+          </div>
+        );
+
+      })()}
+    </Card>
           <div style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0" }}>
             <span style={{ fontSize:11, color:"#555", fontFamily:fonts.sans, flex:1 }}>This Property Rate</span>
             <input type="number" step="0.01" min="0" max="10" value={investmentPropertyRate*100} onChange={e => setInvestmentPropertyRate(Number(e.target.value)/100)} style={{ width:70, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#1A73E8", textAlign:"right" }} />
@@ -767,6 +1295,10 @@ function DeepDiveTab({ profile }) {
                 <input type="number" step="0.01" min="0" max="10" value={currentPropertyRate*100} onChange={e => setCurrentPropertyRate(Number(e.target.value)/100)} style={{ width:70, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#1A73E8", textAlign:"right" }} />
                 <span style={{ fontSize:10, color:"#666" }}>%</span>
               </div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0" }}>
+                <span style={{ fontSize:11, color:"#555", fontFamily:fonts.sans, flex:1 }}>Current Property Monthly Mortgage</span>
+                <input type="text" value={currentPropertyMortgage !== null ? Number(currentPropertyMortgage).toLocaleString("en-SG") : profile.currentProperty?.monthlyMortgage ? Number(profile.currentProperty.monthlyMortgage).toLocaleString("en-SG") : ""} onChange={e => setCurrentPropertyMortgage(Number(e.target.value.replace(/,/g,"")) || null)} style={{ width:100, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:currentPropertyMortgage !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
+              </div>
               <div style={{ fontSize:9, color:"#999", padding:"2px 0 6px" }}>Stress test (4%): {currentPropertyMortgage ? f$(calcMonthlyMortgage(currentPropertyMortgage, 0.04)) : "—"}/mo</div>
             </>
           )}
@@ -774,18 +1306,28 @@ function DeepDiveTab({ profile }) {
 
         {/* Col 2: CPF & Expenses */}
         <div>
-          <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>CPF & Living Expenses</div>
-          <div style={{ fontSize:9, color:"#666", padding:"4px 0", borderBottom:"1px solid #F0F0F0", marginBottom:6 }}>
-            <div>Primary CPF: {f$((cpfPrimaryAlloc ?? (profile.grossIncomeA * (DEFAULTS.cpfRates[profile.ageBracketA]?.total||0.37) * (DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio||0.62))))}</div>
-            {profile.grossIncomeB > 0 && <div>Secondary CPF: {f$((cpfSecondaryAlloc ?? 0))}</div>}
+          <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>CPF Allocation</div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
+            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Primary CPF to Mortgage</span>
+            <input type="text" value={cpfPrimaryAlloc !== null ? Number(cpfPrimaryAlloc).toLocaleString("en-SG") : Number(profile.grossIncomeA * (DEFAULTS.cpfRates[profile.ageBracketA]?.total||0.37) * (DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio||0.62)).toLocaleString("en-SG")} onChange={e => setCpfPrimaryAlloc(Number(e.target.value.replace(/,/g,"")) || null)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#2E7D32", background:cpfPrimaryAlloc !== null?"#E8F5E9":"#F8FFF8", textAlign:"right" }} />
           </div>
+          {profile.grossIncomeB > 0 && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", borderBottom:"1px solid #F0F0F0", marginBottom:6 }}>
+              <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Secondary CPF to Mortgage</span>
+              <input type="text" value={cpfSecondaryAlloc !== null ? Number(cpfSecondaryAlloc).toLocaleString("en-SG") : "0"} onChange={e => setCpfSecondaryAlloc(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#2E7D32", background:cpfSecondaryAlloc !== 0?"#E8F5E9":"#F8FFF8", textAlign:"right" }} />
+            </div>
+          )}
+          <div style={{ fontSize:9, color:"#666", padding:"4px 0", borderBottom:"1px solid #F0F0F0", marginBottom:6 }}>
+            Total CPF Offset: {f$((cpfPrimaryAlloc ?? (profile.grossIncomeA * (DEFAULTS.cpfRates[profile.ageBracketA]?.total||0.37) * (DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio||0.62))) + (cpfSecondaryAlloc || 0))}
+          </div>
+          <div style={{ fontSize:10, fontWeight:700, color:"#0F4C81", letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>Living Expenses</div>
           <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
             <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Monthly Expenses</span>
             <input type="text" value={monthlyExpensesOverride !== null ? Number(monthlyExpensesOverride).toLocaleString("en-SG") : Number(profile.monthlyExpenses).toLocaleString("en-SG")} onChange={e => setMonthlyExpensesOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:monthlyExpensesOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
-            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Property Tax</span>
-            <input type="text" value={propertyTaxOverride !== null ? Number(propertyTaxOverride).toLocaleString("en-SG") : Number(profile.propertyTax).toLocaleString("en-SG")} onChange={e => setPropertyTaxOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:propertyTaxOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
+            <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Property Tax {propertyMode==="1"?"(OOC 4%)":"(NROC 11%)"}</span>
+            <input type="text" value={propertyTaxOverride !== null ? Number(propertyTaxOverride).toLocaleString("en-SG") : propertyMode==="1" ? Number(Math.round(analysis.effectiveRent * DEFAULTS.avPctOfRent * DEFAULTS.propTaxRateOOC)).toLocaleString("en-SG") : Number(Math.round(analysis.effectiveRent * DEFAULTS.avPctOfRent * DEFAULTS.propTaxRateNROC)).toLocaleString("en-SG")} onChange={e => setPropertyTaxOverride(Number(e.target.value.replace(/,/g,"")) || 0)} style={{ width:85, padding:"4px 6px", border:"1px solid #D0E4F5", borderRadius:4, fontSize:10, fontFamily:fonts.mono, color:"#C62828", background:propertyTaxOverride !== null?"#FEF2F2":"#FFF8F8", textAlign:"right" }} />
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0" }}>
             <span style={{ fontSize:10, color:"#555", fontFamily:fonts.sans, flex:1 }}>Maintenance</span>
@@ -813,10 +1355,11 @@ function DeepDiveTab({ profile }) {
         const cpfToMortgage = cpfPrimaryAlloc !== null ? cpfPrimaryAlloc : (primaryIncome * (DEFAULTS.cpfRates[profile.ageBracketA]?.total || 0.37) * (DEFAULTS.cpfRates[profile.ageBracketA]?.oaRatio || 0.62));
         const cpfSecondary = cpfSecondaryAlloc || 0;
         const totalCpfOffset = cpfToMortgage + cpfSecondary;
-        const cashMortgageOutlay = Math.max(0, mortgagePayment - totalCpfOffset);
+        const currentPropMortgage = propertyMode==="2" ? (currentPropertyMortgage ?? profile.currentProperty?.monthlyMortgage ?? 0) : 0;
+        const cashMortgageOutlay = Math.max(0, mortgagePayment - totalCpfOffset) + currentPropMortgage;
 
         const monthlyExpenses = monthlyExpensesOverride !== null ? monthlyExpensesOverride : profile.monthlyExpenses;
-        const propertyTax = propertyTaxOverride !== null ? propertyTaxOverride : profile.propertyTax;
+        const propertyTax = propertyTaxOverride !== null ? propertyTaxOverride : (propertyMode==="1" ? Math.round(analysis.effectiveRent * DEFAULTS.avPctOfRent * DEFAULTS.propTaxRateOOC) : Math.round(analysis.effectiveRent * DEFAULTS.avPctOfRent * DEFAULTS.propTaxRateNROC));
         const maintenanceFee = maintenanceFeeOverride !== null ? maintenanceFeeOverride : profile.maintenance;
         const utilities = utilitiesOverride !== null ? utilitiesOverride : profile.utilities;
         const totalExpenses = monthlyExpenses + propertyTax + maintenanceFee + utilities + profile.existingCommitments;
@@ -824,10 +1367,10 @@ function DeepDiveTab({ profile }) {
         const primaryRemaining = primaryNetTakeHome - cashMortgageOutlay - totalExpenses;
         const householdRemaining = householdNetTakeHome - cashMortgageOutlay - totalExpenses;
 
-        const primaryTdsr = mortgagePayment / primaryIncome;
-        const primaryTdsrStress = mortgageStressTest / primaryIncome;
-        const householdTdsr = mortgagePayment / (householdNetTakeHome || 1);
-        const householdTdsrStress = mortgageStressTest / (householdNetTakeHome || 1);
+        const primaryTdsr = (mortgagePayment + profile.existingCommitments) / primaryIncome;
+        const primaryTdsrStress = (mortgageStressTest + profile.existingCommitments) / primaryIncome;
+        const householdTdsr = (mortgagePayment + profile.existingCommitments) / (primaryIncome + secondaryIncome || 1);
+        const householdTdsrStress = (mortgageStressTest + profile.existingCommitments) / (primaryIncome + secondaryIncome || 1);
 
         return (
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
@@ -874,6 +1417,12 @@ function DeepDiveTab({ profile }) {
                 <span style={{color:"#555"}}>Less Monthly Expenses</span>
                 <span style={{ fontWeight:600, fontFamily:fonts.mono, color:"#C62828" }}>({f$(monthlyExpenses)})</span>
               </div>
+              {propertyMode==="2" && (
+                <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                  <span style={{paddingLeft:10}}>Less Current Property Mortgage</span>
+                  <span style={{ fontFamily:fonts.mono, color:"#C62828" }}>({f$(currentPropMortgage)})</span>
+                </div>
+              )}
               <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:10, color:"#666" }}>
                 <span>Property Tax · Maintenance · Utilities · Commitments</span>
                 <span style={{ fontFamily:fonts.mono }}>({f$(propertyTax + maintenanceFee + utilities + profile.existingCommitments)})</span>
@@ -939,6 +1488,12 @@ function DeepDiveTab({ profile }) {
                 <span style={{color:"#555"}}>Less Monthly Expenses</span>
                 <span style={{ fontWeight:600, fontFamily:fonts.mono, color:"#C62828" }}>({f$(monthlyExpenses)})</span>
               </div>
+              {propertyMode==="2" && (
+                <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:11, color:"#555" }}>
+                  <span style={{paddingLeft:10}}>Less Current Property Mortgage</span>
+                  <span style={{ fontFamily:fonts.mono, color:"#C62828" }}>({f$(currentPropMortgage)})</span>
+                </div>
+              )}
               <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:10, color:"#666" }}>
                 <span>Property Tax · Maintenance · Utilities · Commitments</span>
                 <span style={{ fontFamily:fonts.mono }}>({f$(propertyTax + maintenanceFee + utilities + profile.existingCommitments)})</span>
